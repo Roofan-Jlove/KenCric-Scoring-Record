@@ -48,3 +48,6 @@ supabase/.temp/
 
 # --- Claude Code local state ---
 .claude/settings.local.json
+
+# --- Agent skills (local tooling, not part of the project deliverable) ---
+.agents/skills/
