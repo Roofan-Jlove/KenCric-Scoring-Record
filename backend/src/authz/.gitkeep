@@ -1,4 +1,0 @@
-# SVC-AUTHORIZER's server-side implementation - command-level and
-# state-machine checks, called before RLS is ever reached
-# (security-specification.md §4.1). This is where TASK-0013's deferred
-# backend/src/authz/ half, and TASK-0014's SVC-AUTHORIZER skeleton, land.
