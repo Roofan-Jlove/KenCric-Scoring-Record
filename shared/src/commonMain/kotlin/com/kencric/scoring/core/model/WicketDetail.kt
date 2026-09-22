@@ -2,6 +2,11 @@ package com.kencric.scoring.core.model
 
 enum class CreaseEnd { STRIKER, NON_STRIKER }
 
+fun CreaseEnd.opposite(): CreaseEnd = when (this) {
+    CreaseEnd.STRIKER -> CreaseEnd.NON_STRIKER
+    CreaseEnd.NON_STRIKER -> CreaseEnd.STRIKER
+}
+
 /** live-scoring.md §9.2. Required fields listed before defaulted ones,
  * so positional construction stays safe -- every call site in this
  * codebase currently uses named arguments regardless. */

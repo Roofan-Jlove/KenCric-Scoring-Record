@@ -49,6 +49,24 @@ val FIELDER_REQUIRED_MODES: Set<DismissalMode> = setOf(
 )
 
 /**
+ * live-scoring.md §9.4: wicket.creditsBowler is a pure function of mode,
+ * never independently set. Verified against every §21.7 case (C31-C44)
+ * by hand before being written here. Also closes a gap flagged during
+ * TASK-0010: data-specification.md §7.5's wickets.credits_bowler column
+ * had no CHECK constraint tying it to mode, because this mapping wasn't
+ * confirmed at the time -- see the follow-up migration that adds it now.
+ */
+val BOWLER_CREDITED_MODES: Set<DismissalMode> = setOf(
+    DismissalMode.BOWLED,
+    DismissalMode.CAUGHT,
+    DismissalMode.LBW,
+    DismissalMode.STUMPED,
+    DismissalMode.HIT_WICKET,
+)
+
+fun creditsBowler(mode: DismissalMode): Boolean = mode in BOWLER_CREDITED_MODES
+
+/**
  * live-scoring.md §9.1's determinism table, restated as a function of
  * (legality, isFreeHit) -> the valid dismissal-mode set for that
  * context. Pre-delivery (mankad) and not-tied-to-a-delivery
