@@ -1,0 +1,17 @@
+{
+  "name": "@kencric/backend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Application logic behind every command/RPC endpoint (repository-structure.md §8). Imported by thin entrypoints at database/supabase/functions/*/index.ts, never run standalone in production.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.1",
+    "@types/node": "^22.7.0"
+  }
+}

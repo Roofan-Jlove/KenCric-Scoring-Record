@@ -1,0 +1,4 @@
+# V2 outbound webhook delivery with HMAC signing and retry
+# (api-specification.md §13.4). Blocked on RCR-0001-class resolution of
+# AVF-SEC-01 (webhook-secret storage vs. HMAC delivery are currently
+# specified incompatibly) before real implementation - see docs/rcr/.

@@ -1,0 +1,3 @@
+# Server-side folding of match_events into match_snapshots/live_state,
+# using shared/'s jvmMain build - the same pipeline, run server-side
+# (master-specification.md §5.1). Empty pending that task.

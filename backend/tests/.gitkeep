@@ -1,0 +1,2 @@
+# Backend integration tests - real test-Postgres, not mocked
+# (testing-strategy.md §5). Empty pending real backend logic to test.

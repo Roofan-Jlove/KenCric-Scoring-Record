@@ -1,0 +1,3 @@
+# Event-ingest re-validation (schema, SVC-AUTHORIZER checks,
+# device_seq/hash-chain continuity) - the server-side half of
+# offline-first-specification.md §7.1. Empty pending that task.

@@ -1,0 +1,4 @@
+# The transactional-outbox dispatcher - delivers integration events to
+# downstream consumers (ADR-09). Drains the outbox table created in
+# TASK-0012 (database/supabase/migrations/20260923000028_create_outbox.sql).
+# Empty pending that task.
