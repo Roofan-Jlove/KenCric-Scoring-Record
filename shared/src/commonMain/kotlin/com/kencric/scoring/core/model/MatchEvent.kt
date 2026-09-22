@@ -68,4 +68,16 @@ sealed class MatchEvent {
      * `ReferenceDataPort` already flagged.
      */
     data class PlayingConditionsFrozen(val conditionsProfileSnapshot: String) : MatchEvent()
+
+    /**
+     * §18.1 step 2, added during `TASK-0029` (Undo) -- `§16` itself only
+     * mentions this event's existence in passing ("Emit
+     * `EVT-DELIVERY-VOIDED` (or the equivalent void marker...)") with no
+     * dedicated field table the way `§16.2-16.5` each got one. Modeled
+     * minimally per what §18.1's text actually specifies: a reference to
+     * the voided event's `eventId`, nothing more. `voidedEventId` refers
+     * to an `AuditedEvent.eventId` (`TASK-0028`), not a `MatchEvent`
+     * itself -- the envelope, not the payload, is what carries identity.
+     */
+    data class DeliveryVoided(val voidedEventId: String) : MatchEvent()
 }
