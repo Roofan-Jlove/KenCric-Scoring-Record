@@ -1,3 +1,0 @@
-# One module per command-endpoint family (api-specification.md §11):
-# sign-off, dispute, deactivate-member, invitations, player-merge,
-# guest-claim, appearance-claims. Empty pending those tasks.
