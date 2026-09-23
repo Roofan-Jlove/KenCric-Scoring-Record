@@ -70,3 +70,20 @@ export function staleVersionError(detail: string, instance: string): ProblemDeta
     instance,
   };
 }
+
+/**
+ * TASK-0044: api-specification.md §5.2's `not-found` (404) --
+ * "Resource doesn't exist, or exists but RLS makes it invisible to this
+ * caller -- the response is identical in both cases, deliberately, to
+ * avoid leaking existence across tenants." [detail] must therefore
+ * never distinguish the two cases either.
+ */
+export function notFoundError(detail: string, instance: string): ProblemDetails {
+  return {
+    type: `${ERROR_BASE_URI}/not-found`,
+    title: "Not Found",
+    status: 404,
+    detail,
+    instance,
+  };
+}
