@@ -102,11 +102,21 @@ export function ingestPushBatch(
   return outcomes;
 }
 
-/** An in-memory MatchEventStore for tests -- not a production adapter. */
+/**
+ * An in-memory MatchEventStore for tests -- not a production adapter.
+ *
+ * Also assigns and exposes `event_ordinal` (TASK-0036) -- server-
+ * assigned at insert time, never client-supplied (unlike `device_seq`),
+ * per system-architecture.md's HLC-based canonical ordering. Extended
+ * here rather than duplicated into a second store, since push and pull
+ * share the same underlying table in a real system.
+ */
 export class InMemoryMatchEventStore implements MatchEventStore {
   private readonly eventsById = new Map<string, IncomingPushEvent>();
   private readonly lastSeqByStream = new Map<string, number>();
   private readonly lastHashByStream = new Map<string, string>();
+  private readonly ordinalByEventId = new Map<string, number>();
+  private nextOrdinal = 1;
 
   has(eventId: string): boolean {
     return this.eventsById.has(eventId);
@@ -116,6 +126,7 @@ export class InMemoryMatchEventStore implements MatchEventStore {
     this.eventsById.set(event.eventId, event);
     this.lastSeqByStream.set(event.streamId, event.deviceSeq);
     this.lastHashByStream.set(event.streamId, event.hash);
+    this.ordinalByEventId.set(event.eventId, this.nextOrdinal++);
   }
 
   lastConfirmedDeviceSeq(streamId: string): number | null {
@@ -124,5 +135,15 @@ export class InMemoryMatchEventStore implements MatchEventStore {
 
   lastHash(streamId: string): string | null {
     return this.lastHashByStream.get(streamId) ?? null;
+  }
+
+  /** §7.3 step 2-3: everything after [afterOrdinal] for [streamId], in canonical ordinal-ascending order. */
+  eventsAfter(streamId: string, afterOrdinal: number | null): Array<{ eventId: string; streamId: string; eventOrdinal: number; payload: unknown }> {
+    return [...this.eventsById.values()]
+      .filter((e) => e.streamId === streamId)
+      .map((e) => ({ event: e, ordinal: this.ordinalByEventId.get(e.eventId)! }))
+      .filter(({ ordinal }) => afterOrdinal === null || ordinal > afterOrdinal)
+      .sort((a, b) => a.ordinal - b.ordinal)
+      .map(({ event, ordinal }) => ({ eventId: event.eventId, streamId: event.streamId, eventOrdinal: ordinal, payload: event.payload }));
   }
 }
