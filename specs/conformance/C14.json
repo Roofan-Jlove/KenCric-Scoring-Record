@@ -1,0 +1,20 @@
+{
+  "id": "C14",
+  "kind": "delivery_outcome",
+  "section": "21.3",
+  "description": "Wide + 2 run",
+  "legality": "WIDE",
+  "runEvents": [
+    {"origin": "WIDE", "value": 1, "method": "AUTOMATIC"},
+    {"origin": "WIDE", "value": 2, "method": "RUN"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 3,
+    "extras": {"WIDES": 3},
+    "ranRuns": 2,
+    "rotates": false,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": false
+  }
+}

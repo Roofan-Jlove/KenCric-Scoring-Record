@@ -1,0 +1,17 @@
+{
+  "id": "C13",
+  "kind": "delivery_outcome",
+  "section": "21.3",
+  "description": "Plain wide",
+  "legality": "WIDE",
+  "runEvents": [{"origin": "WIDE", "value": 1, "method": "AUTOMATIC"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 1,
+    "extras": {"WIDES": 1},
+    "ranRuns": 0,
+    "rotates": false,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": false
+  }
+}

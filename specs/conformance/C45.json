@@ -1,0 +1,14 @@
+{
+  "id": "C45",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Retired -- not out (hurt)",
+  "note": "n/a -- not a wicket at all (§9.8), standalone EVT-BATTER-RETIRED. Partially modeled: BatterStatus.RETIRED_NOT_OUT exists (TASK-0023) and evaluateInningsEnd's retiredNotOutOrAbsentCount input already accounts for its all-out-threshold effect (TASK-0026, verified via EX-11), but no pipeline function performs the actual retire/resume transition itself.",
+  "standaloneEvent": true,
+  "executable": false,
+  "blockedBy": "no pipeline function performs the retire/resume transition (§9.8) itself yet, though its downstream effect on the all-out threshold is already implemented and tested (TASK-0026)",
+  "expected": {
+    "wicketsLostDelta": 0,
+    "endResolutionNote": "wicketsLost unaffected; batter may resume later"
+  }
+}

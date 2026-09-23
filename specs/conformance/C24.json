@@ -1,0 +1,16 @@
+{
+  "id": "C24",
+  "kind": "delivery_outcome",
+  "section": "21.5",
+  "description": "One bye",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "BYE", "value": 1, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "extras": {"BYES": 1},
+    "ranRuns": 1,
+    "rotates": true,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

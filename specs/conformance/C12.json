@@ -1,0 +1,19 @@
+{
+  "id": "C12",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Single, last ball of the over",
+  "note": "netRotates = true XOR true = false -- same batter keeps strike into the new over (§14.1) -- the classic gotcha",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+  "isOverFinalLegalBall": true,
+  "expected": {
+    "total": 1,
+    "batterRuns": 1,
+    "bowlerRunsCharged": 1,
+    "ranRuns": 1,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

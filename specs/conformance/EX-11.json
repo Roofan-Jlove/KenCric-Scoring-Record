@@ -1,0 +1,21 @@
+{
+  "id": "EX-11",
+  "kind": "worked_example",
+  "section": "22.10",
+  "description": "Retired hurt, then resumption",
+  "note": "A standalone EVT-BATTER-RETIRED event, not a DeliveryInput (§9.8). Partially modeled elsewhere: BatterStatus.RETIRED_NOT_OUT exists (TASK-0023) and evaluateInningsEnd's retiredNotOutOrAbsentCount input already accounts for the all-out-threshold effect (TASK-0026) -- but no pipeline function performs the retire/resume transition itself.",
+  "executable": false,
+  "blockedBy": "no pipeline function performs the retire/resume transition (§9.8) itself yet",
+  "event": {
+    "type": "EVT-BATTER-RETIRED",
+    "batterId": "A",
+    "reason": "injury"
+  },
+  "expected": {
+    "batterState": "A: status -> RETIRED_NOT_OUT; figures (runs, ballsFaced, fours, sixes) frozen as they stand, not reset. C comes in at A's vacated end (same mechanism as §9.5 rule 1).",
+    "teamScore": "wicketsLost unaffected (§9.8 -- not a dismissal).",
+    "effectiveAllOutThreshold": "reduced by 1 for the rest of the innings while A remains RETIRED_NOT_OUT (MINV-10, §15) -- this part IS already implemented and tested, see TASK-0026's ex11_retired_not_out_reduces_effective_all_out_threshold test.",
+    "strikeState": "C takes A's exact end.",
+    "resumption": "A's status -> NOT_OUT again, later, between deliveries; the original card line's accumulated figures are reused unchanged -- a fresh card line is never created for a resuming batter."
+  }
+}

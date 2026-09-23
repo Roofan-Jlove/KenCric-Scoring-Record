@@ -1,0 +1,15 @@
+{
+  "id": "EX-13",
+  "kind": "worked_example",
+  "section": "22.12",
+  "description": "Correction that changes when the innings ended",
+  "note": "A dozens-of-deliveries, multi-over narrative (over 12.1 through 19.4) -- not practical as a literal fixture. TASK-0030's own change log flagged the same reduction: its InningsCorrectorTest.kt reproduces the exact STRUCTURAL property this example describes (ends_earlier_flags_orphaned_trailing_deliveries, no_longer_ends_flags_requires_continuation) via small purpose-built scenarios, at a scale that's actually reviewable, rather than transcribing this narrative verbatim.",
+  "executable": false,
+  "blockedBy": "requires the full multi-over event log this example describes; the underlying mechanism is already tested at a smaller scale by TASK-0030's InningsCorrectorTest.kt",
+  "narrative": {
+    "preState": "the recorded log shows over 19.4 as a wicket (the 10th, all out), innings recorded COMPLETE at that point; overs 19.5-19.6 never bowled.",
+    "correction": "the scorer corrects over 12.1 (wrongly recorded as a wicket) to a leg-bye instead.",
+    "consequence": "the batter dismissed at 12.1 is now not out and never left the crease; the batter who replaced them at 12.1 never batted; every event from 12.1 onward that referenced strike/bowler-of-record is now potentially inconsistent with the refolded reality.",
+    "handling": "the engine does not attempt to auto-repair 19.4 or any event between 12.1 and 19.4 -- it surfaces every event whose recorded crease context now disagrees with the refolded derivation as a named, itemised reconciliation failure (\"strike-context mismatch at over N.b\"), blocking sign-off until the scorer works forward from 12.1 confirming or correcting each subsequent event's crease context explicitly (§19.2's principle: never silently reconciled on the scorer's behalf)."
+  }
+}

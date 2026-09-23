@@ -1,0 +1,16 @@
+{
+  "id": "C38",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Run out attempting a 2nd run, 1 completed, had crossed",
+  "note": "See worked example §22.8 (EX-09)",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+  "wicket": {"mode": "RUN_OUT", "outBatterId": "A", "endVacated": "STRIKER", "crossedBeforeDismissal": true},
+  "expected": {
+    "total": 1,
+    "batterRuns": 1,
+    "bowlerCredited": false,
+    "endResolutionNote": "1 run credited; new batter takes the opposite end from where the dismissed batter started (§9.5 rule 2b)"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "C19",
+  "kind": "delivery_outcome",
+  "section": "21.4",
+  "description": "No-ball hit for four",
+  "legality": "NO_BALL",
+  "runEvents": [
+    {"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"},
+    {"origin": "NO_BALL_BAT", "value": 4, "method": "BOUNDARY"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 5,
+    "extras": {"NO_BALLS": 1},
+    "batterRuns": 4,
+    "ranRuns": 0,
+    "freeHitPendingAfter": true,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true,
+    "foursIncrement": true
+  }
+}

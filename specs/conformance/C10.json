@@ -1,0 +1,22 @@
+{
+  "id": "C10",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Two runs + overthrow one",
+  "note": "Rotation driven by the 2",
+  "legality": "LEGAL",
+  "runEvents": [
+    {"origin": "OFF_BAT", "value": 2, "method": "RUN"},
+    {"origin": "OFF_BAT", "value": 1, "method": "OVERTHROW"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 3,
+    "batterRuns": 3,
+    "bowlerRunsCharged": 3,
+    "ranRuns": 2,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

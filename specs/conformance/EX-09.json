@@ -1,0 +1,46 @@
+{
+  "id": "EX-09",
+  "kind": "worked_example",
+  "section": "22.8",
+  "description": "Run out with the batters having crossed",
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+    "wicket": {"mode": "RUN_OUT", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["fielder"], "crossedBeforeDismissal": true, "incomingBatterId": "C"}
+  },
+  "expected": {
+    "batterCardLines": {
+      "A": {"playerId": "A", "runs": 1, "ballsFaced": 1, "fours": 0, "sixes": 0, "status": "OUT"},
+      "C": {"playerId": "C", "runs": 0, "ballsFaced": 0, "fours": 0, "sixes": 0, "status": "NOT_OUT"}
+    },
+    "bowlerCardLines": {"X": {"playerId": "X", "legalBallsBowled": 1, "runsCharged": 1, "wickets": 0, "widesBowled": 0, "noBallsBowled": 0, "maidens": 0}},
+    "score": {"totalRuns": 62, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 3, "legalBallsBowled": 1},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 4, "runsThisOver": 1, "isMaidenSoFar": false},
+    "strikerBatterId": "B",
+    "nonStrikerBatterId": "C",
+    "freeHitPending": false,
+    "inningsEndReason": null,
+    "resultNote": "the one completed run IS credited to A even though A is the one dismissed (§9.3). Because crossedBeforeDismissal=true, C comes in at the non-striker's end and B -- not C -- is the striker (§9.5 rule 2b). Contrast with C37, where crossedBeforeDismissal=false would instead leave B as non-striker and put C in at the striker's end."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "C20",
+  "kind": "delivery_outcome",
+  "section": "21.4",
+  "description": "No-ball hit for six",
+  "legality": "NO_BALL",
+  "runEvents": [
+    {"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"},
+    {"origin": "NO_BALL_BAT", "value": 6, "method": "BOUNDARY"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 7,
+    "extras": {"NO_BALLS": 1},
+    "batterRuns": 6,
+    "ranRuns": 0,
+    "freeHitPendingAfter": true,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true,
+    "sixesIncrement": true
+  }
+}

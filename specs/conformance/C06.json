@@ -1,0 +1,20 @@
+{
+  "id": "C06",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "All-run four (no boundary)",
+  "note": "Distinguish from C05: fours tally does not increment (§10)",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 4, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 4,
+    "batterRuns": 4,
+    "bowlerRunsCharged": 4,
+    "ranRuns": 4,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true,
+    "foursIncrement": false
+  }
+}

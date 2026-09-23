@@ -1,0 +1,15 @@
+{
+  "id": "C39",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Hit wicket",
+  "note": "RunEvents: none, or runs if mid-run -- see the general rule (§9.3); this fixture uses the zero-runs baseline case.",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "HIT_WICKET", "outBatterId": "A", "endVacated": "STRIKER"},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end"
+  }
+}

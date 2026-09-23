@@ -1,0 +1,17 @@
+{
+  "id": "C17",
+  "kind": "delivery_outcome",
+  "section": "21.4",
+  "description": "Plain no-ball",
+  "legality": "NO_BALL",
+  "runEvents": [{"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 1,
+    "extras": {"NO_BALLS": 1},
+    "ranRuns": 0,
+    "freeHitPendingAfter": true,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true
+  }
+}

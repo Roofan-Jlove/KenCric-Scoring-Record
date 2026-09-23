@@ -1,0 +1,14 @@
+{
+  "id": "C35",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Stumped",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "STUMPED", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["keeper"]},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end"
+  }
+}

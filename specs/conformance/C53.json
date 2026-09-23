@@ -1,0 +1,17 @@
+{
+  "id": "C53",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "legality = DEAD_BALL with a non-empty runEvents",
+  "input": {
+    "legality": "DEAD_BALL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+    "deadBallReason": "bail dislodged accidentally"
+  },
+  "expectedRule": "V11",
+  "reason": "A dead ball carries no runs by definition (§6.4)."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "C34",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "LBW",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "LBW", "outBatterId": "A", "endVacated": "STRIKER"},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end"
+  }
+}

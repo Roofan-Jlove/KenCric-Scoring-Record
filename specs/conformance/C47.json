@@ -1,0 +1,18 @@
+{
+  "id": "C47",
+  "kind": "rejection",
+  "section": "21.8",
+  "description": "Free hit, ball would \"bowl\" the striker",
+  "note": "Filed under §21.8 (free hit) in the source catalogue, not §21.9, but is itself a validation rejection -- modeled with kind=rejection for semantic consistency with C50-C55.",
+  "input": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": true,
+    "runEvents": [],
+    "wicket": {"mode": "BOWLED", "outBatterId": "A", "endVacated": "STRIKER"}
+  },
+  "expectedRule": "V5",
+  "reason": "BOWLED is not in the valid dismissal-mode set for a free hit (§9.1); not out, any runs scored stand"
+}

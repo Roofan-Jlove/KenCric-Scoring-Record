@@ -1,0 +1,17 @@
+{
+  "id": "C51",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "wicket.mode = CAUGHT with runEvents = [OB:2:R]",
+  "input": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 2, "method": "RUN"}],
+    "wicket": {"mode": "CAUGHT", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["fielder"]}
+  },
+  "expectedRule": "V6",
+  "reason": "Caught must total zero runs (§9.3)."
+}

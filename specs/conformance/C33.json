@@ -1,0 +1,15 @@
+{
+  "id": "C33",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Caught and bowled",
+  "note": "Same as C32 -- no special handling (§9.2 note)",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "CAUGHT", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["bowlerId"]},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end"
+  }
+}

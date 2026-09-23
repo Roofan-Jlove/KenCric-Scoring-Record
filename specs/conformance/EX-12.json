@@ -1,0 +1,43 @@
+{
+  "id": "EX-12",
+  "kind": "worked_example",
+  "section": "22.11",
+  "description": "Undo across an over boundary (compound case)",
+  "note": "Executable, unlike EX-10/EX-11 -- reuses TASK-0029's undoLastDelivery() directly. This is a two-step scenario (apply, then undo), not the single genesis/delivery/expected shape -- see expectedAfterDelivery/expectedAfterUndo. Already covered by InningsFolderTest.kt's ex12_undo_across_an_over_boundary_reverts_everything_together test.",
+  "undoScenario": true,
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 5, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 6, "method": "BOUNDARY"}]
+  },
+  "expectedAfterDelivery": {
+    "over": {"overNumber": 9, "bowlerId": "X", "legalBallCount": 0, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "B",
+    "nonStrikerBatterId": "A",
+    "note": "the over has completed, overNumber has advanced, and (per the narrative) the client is currently showing the bowler-change prompt (UX-15) for the new over"
+  },
+  "expectedAfterUndo": {
+    "note": "byte-identical to genesis -- legalBallCount reverts to 5 (over not complete), overNumber reverts to the prior over, the bowler-change prompt that had just appeared is automatically retracted, strike reverts to whoever was striker before the six -- all automatic, none separately coded (§18.1)",
+    "equalsGenesis": true
+  }
+}

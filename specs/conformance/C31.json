@@ -1,0 +1,14 @@
+{
+  "id": "C31",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Clean bowled",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "BOWLED", "outBatterId": "A", "endVacated": "STRIKER"},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end (§9.5 rule 1)"
+  }
+}

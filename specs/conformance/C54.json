@@ -1,0 +1,16 @@
+{
+  "id": "C54",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "isFreeHit = true submitted together with legality = NO_BALL",
+  "input": {
+    "legality": "NO_BALL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": true,
+    "runEvents": [{"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"}]
+  },
+  "expectedRule": "V9",
+  "reason": "A free hit is a property of the next legal delivery, never of the no-ball itself (§13.4)."
+}

@@ -1,0 +1,42 @@
+{
+  "id": "EX-05",
+  "kind": "worked_example",
+  "section": "22.4",
+  "description": "Wide to the boundary",
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "WIDE",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "WIDE", "value": 4, "method": "BOUNDARY"}]
+  },
+  "expected": {
+    "batterCardLines": {"A": {"playerId": "A", "runs": 0, "ballsFaced": 0, "fours": 0, "sixes": 0, "status": "NOT_OUT"}},
+    "bowlerCardLines": {"X": {"playerId": "X", "legalBallsBowled": 0, "runsCharged": 4, "wickets": 0, "widesBowled": 4, "noBallsBowled": 0, "maidens": 0}},
+    "score": {"totalRuns": 65, "byes": 0, "legByes": 0, "wides": 4, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 4, "isMaidenSoFar": false},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null,
+    "resultNote": "A's card line is untouched numerically (§6.2) -- a wide can never be the over's final ball, so no rotation occurs either"
+  }
+}

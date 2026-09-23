@@ -1,0 +1,28 @@
+{
+  "id": "EX-10",
+  "kind": "worked_example",
+  "section": "22.9",
+  "description": "Non-striker run out (\"mankad\")",
+  "note": "A distinct event shape, not a DeliveryInput at all (§9.6/§16.3) -- applyDelivery() cannot fold this (a known gap flagged by TASK-0029, still open). Narrative captured for whenever mankad-folding is built.",
+  "executable": false,
+  "blockedBy": "mankad folding not yet implemented (TASK-0029's known gap)",
+  "preState": {
+    "over": "8.3, about to bowl the 4th ball",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X"
+  },
+  "event": {
+    "type": "EVT-NON-STRIKER-RUN-OUT",
+    "wicket": {"mode": "RUN_OUT", "outBatterId": "B", "endVacated": "NON_STRIKER", "incomingBatterId": "C"}
+  },
+  "expected": {
+    "batterState": "B: status -> OUT. A: completely unaffected -- no ballsFaced change, no runs.",
+    "bowlerState": "X: no change at all -- not legalBallsBowled, not runsCharged, not wickets (RUN_OUT never credits the bowler regardless).",
+    "teamScore": "wicketsLost +1 only.",
+    "overState": "legalBallCount unchanged -- this was never a legal-ball-consuming event.",
+    "wicketState": "C comes in at the non-striker's end.",
+    "strikeState": "A remains striker throughout; §14.2's formula does not even run (§14.6).",
+    "eventGenerated": "EVT-NON-STRIKER-RUN-OUT, positioned by dense event_ordinal immediately before what will become ball 4 of the over, displayed as \"8.3 (before delivery)\"."
+  }
+}

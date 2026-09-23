@@ -71,22 +71,12 @@ fun applyDelivery(state: InningsFoldState, delivery: DeliveryInput, config: Fold
     var batterCardLines = state.batterCardLines + (state.strikerBatterId to updatedStrikerLine)
     val bowlerCardLines = state.bowlerCardLines + (delivery.bowlerId to updatedBowlerLine)
 
-    // Steps 8/9: team/over state. If the PREVIOUS delivery already
-    // completed the over (legalBallCount reached ballsPerOver),
-    // start a fresh OverState for this one first -- updateOverState()
-    // deliberately never does this itself (OverState's own doc comment:
-    // constructing the next over is the caller's job, once the next
-    // bowler is known, which by this point it is: delivery.bowlerId).
+    // Steps 8/9: team/over state.
     val newScore = updateInningsScoreState(
         state.score, adjustedRunEvents, aggregate, config.bowlingTeamId,
         classification.consumesLegalBallSlot, delivery.wicket?.mode,
     )
-    val overBeforeThisDelivery = if (state.over.legalBallCount == config.profile.ballsPerOver) {
-        OverState(overNumber = state.over.overNumber + 1, bowlerId = delivery.bowlerId)
-    } else {
-        state.over
-    }
-    val overResult = updateOverState(overBeforeThisDelivery, delivery.legality, classification.consumesLegalBallSlot, aggregate, config.profile)
+    val overResult = updateOverState(state.over, delivery.legality, classification.consumesLegalBallSlot, aggregate, config.profile)
 
     // Step 5/9.5: wicket resolution -- outgoing batter's status, and,
     // if a replacement exists, which end the incoming batter occupies.
@@ -152,11 +142,28 @@ fun applyDelivery(state: InningsFoldState, delivery: DeliveryInput, config: Fold
         newScore.totalRuns, config.target,
     )
 
+    // §13.1: over-completion's consequences -- overNumber += 1, a fresh
+    // OverState with legalBallCount/runsThisOver/isMaidenSoFar reset --
+    // happen IMMEDIATELY as part of THIS delivery's own processing, per
+    // §13.1's own text ("a fresh OverState begins"), not deferred to the
+    // next delivery. `bowlerId` carries forward as a placeholder (the
+    // just-finished over's bowler) until the scorer confirms the next
+    // over's bowler via a separate action (`UX-15`'s bowler-change
+    // prompt, out of this pipeline's scope) -- safe, since `OverState.
+    // bowlerId` is purely descriptive here and feeds no computation in
+    // this file (bowler-card-line credit always uses `delivery.bowlerId`
+    // directly, never `over.bowlerId`).
+    val finalOver = if (overResult.isOverComplete) {
+        OverState(overNumber = state.over.overNumber + 1, bowlerId = state.over.bowlerId)
+    } else {
+        overResult.overState
+    }
+
     return InningsFoldState(
         batterCardLines = batterCardLines,
         bowlerCardLines = bowlerCardLines,
         score = newScore,
-        over = overResult.overState,
+        over = finalOver,
         strikerBatterId = strikerBatterId,
         nonStrikerBatterId = nonStrikerBatterId,
         freeHitPending = newFreeHitPending,

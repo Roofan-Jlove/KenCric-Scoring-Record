@@ -1,0 +1,45 @@
+{
+  "id": "EX-06",
+  "kind": "worked_example",
+  "section": "22.5",
+  "description": "No-ball hit for four, free hit triggered",
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "NO_BALL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [
+      {"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"},
+      {"origin": "NO_BALL_BAT", "value": 4, "method": "BOUNDARY"}
+    ]
+  },
+  "expected": {
+    "batterCardLines": {"A": {"playerId": "A", "runs": 4, "ballsFaced": 1, "fours": 1, "sixes": 0, "status": "NOT_OUT"}},
+    "bowlerCardLines": {"X": {"playerId": "X", "legalBallsBowled": 0, "runsCharged": 5, "wickets": 0, "widesBowled": 0, "noBallsBowled": 1, "maidens": 0}},
+    "score": {"totalRuns": 66, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 1, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 5, "isMaidenSoFar": false},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": true,
+    "inningsEndReason": null,
+    "resultNote": "maiden status for this over is now permanently false regardless of what follows (§13.3) -- a no-ball breaks a maiden even though its runs came off the bat"
+  }
+}

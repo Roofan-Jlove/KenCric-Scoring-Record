@@ -1,0 +1,21 @@
+{
+  "id": "C18",
+  "kind": "delivery_outcome",
+  "section": "21.4",
+  "description": "No-ball + 2 off the bat",
+  "legality": "NO_BALL",
+  "runEvents": [
+    {"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"},
+    {"origin": "NO_BALL_BAT", "value": 2, "method": "RUN"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 3,
+    "extras": {"NO_BALLS": 1},
+    "batterRuns": 2,
+    "ranRuns": 2,
+    "freeHitPendingAfter": true,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true
+  }
+}

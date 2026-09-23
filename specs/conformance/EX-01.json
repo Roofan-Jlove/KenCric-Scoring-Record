@@ -1,0 +1,41 @@
+{
+  "id": "EX-01",
+  "kind": "worked_example",
+  "section": "22.1",
+  "description": "Plain dot ball (the baseline)",
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 3, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": []
+  },
+  "expected": {
+    "batterCardLines": {"A": {"playerId": "A", "runs": 0, "ballsFaced": 1, "fours": 0, "sixes": 0, "status": "NOT_OUT"}},
+    "bowlerCardLines": {"X": {"playerId": "X", "legalBallsBowled": 1, "runsCharged": 0, "wickets": 0, "widesBowled": 0, "noBallsBowled": 0, "maidens": 0}},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 1},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 4, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  }
+}

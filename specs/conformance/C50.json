@@ -1,0 +1,17 @@
+{
+  "id": "C50",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "wicket.mode = STUMPED on a NO_BALL delivery",
+  "input": {
+    "legality": "NO_BALL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"}],
+    "wicket": {"mode": "STUMPED", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["keeper"]}
+  },
+  "expectedRule": "V5",
+  "reason": "Not in the no-ball valid set (§9.1) -- broader than \"no stumping off a no-ball\" would suggest at first glance; stumped IS invalid off a no-ball, valid off a wide."
+}

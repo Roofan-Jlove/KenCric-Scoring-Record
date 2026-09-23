@@ -1,0 +1,18 @@
+{
+  "id": "C01",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Dot ball",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 0,
+    "batterRuns": 0,
+    "bowlerRunsCharged": 0,
+    "ranRuns": 0,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

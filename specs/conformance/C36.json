@@ -1,0 +1,14 @@
+{
+  "id": "C36",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Run out, striker, no runs completed",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "RUN_OUT", "outBatterId": "A", "endVacated": "STRIKER", "crossedBeforeDismissal": false},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": false,
+    "endResolutionNote": "Non-striker unaffected; new batter takes striker's end"
+  }
+}

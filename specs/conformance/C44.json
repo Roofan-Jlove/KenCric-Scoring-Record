@@ -1,0 +1,14 @@
+{
+  "id": "C44",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Retired out",
+  "note": "n/a -- standalone RETIRED_OUT event, not delivery-attached (§9.7).",
+  "standaloneEvent": true,
+  "executable": false,
+  "blockedBy": "§9.7 (timed out / retired out, not delivery-attached) is not implemented by any task in this backlog yet",
+  "expected": {
+    "bowlerCredited": false,
+    "endResolutionNote": "Counts as a wicket; new batter in"
+  }
+}

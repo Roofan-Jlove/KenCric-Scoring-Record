@@ -1,0 +1,19 @@
+{
+  "id": "C52",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "RunEvents = [OB:4:B, OB:2:O] on one delivery",
+  "input": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [
+      {"origin": "OFF_BAT", "value": 4, "method": "BOUNDARY"},
+      {"origin": "OFF_BAT", "value": 2, "method": "OVERTHROW"}
+    ]
+  },
+  "expectedRule": "V4",
+  "reason": "A boundary and an overthrow cannot coexist on the same delivery (§7.4)."
+}

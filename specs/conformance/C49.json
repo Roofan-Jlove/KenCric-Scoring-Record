@@ -1,0 +1,20 @@
+{
+  "id": "C49",
+  "kind": "delivery_outcome",
+  "section": "21.8",
+  "description": "No-ball bowled during an already-pending free hit",
+  "note": "Second illegal delivery before the free hit is used -- same as C23.",
+  "legality": "NO_BALL",
+  "isFreeHit": false,
+  "freeHitPendingBefore": true,
+  "runEvents": [{"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 1,
+    "extras": {"NO_BALLS": 1},
+    "freeHitPendingAfter": true,
+    "freeHitPendingAfterNote": "remains true, unconsumed, carried to the next legal delivery (§13.4)",
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true
+  }
+}

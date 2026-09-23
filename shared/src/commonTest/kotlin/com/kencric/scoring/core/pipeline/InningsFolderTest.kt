@@ -69,11 +69,15 @@ class InningsFolderTest {
     }
 
     // EX-03: boundary six on the over's final ball completes the over
-    // and rotates strike purely from the end-of-over swap.
+    // and rotates strike purely from the end-of-over swap. Per §13.1's
+    // own text, "a fresh OverState begins" IMMEDIATELY as part of this
+    // same delivery -- legalBallCount/runsThisOver/isMaidenSoFar are
+    // already reset, not left showing the just-completed over's tally
+    // (self-caught during TASK-0032's fixture-writing; corrected here).
     @Test fun ex03_boundary_six_completes_over_and_rotates_strike() {
         val stateAtBall5 = genesis.copy(over = genesis.over.copy(legalBallCount = 5))
         val result = foldInnings(stateAtBall5, listOf(legalDelivery(listOf(RunEvent(OFF_BAT, 6, BOUNDARY)))), config)
-        assertEquals(6, result.over.legalBallCount)
+        assertEquals(0, result.over.legalBallCount, "a fresh OverState begins immediately on over-completion (§13.1)")
         assertEquals(9, result.over.overNumber)
         assertEquals("B", result.strikerBatterId, "B becomes striker for over 9 purely from the end-of-over swap")
         assertEquals("A", result.nonStrikerBatterId)
@@ -85,7 +89,7 @@ class InningsFolderTest {
     @Test fun ex04_single_on_final_ball_cancels_to_no_rotation() {
         val stateAtBall5 = genesis.copy(over = genesis.over.copy(legalBallCount = 5))
         val result = foldInnings(stateAtBall5, listOf(legalDelivery(listOf(RunEvent(OFF_BAT, 1, RUN)))), config)
-        assertEquals(6, result.over.legalBallCount)
+        assertEquals(0, result.over.legalBallCount, "a fresh OverState begins immediately on over-completion (§13.1)")
         assertEquals("A", result.strikerBatterId, "the run-swap and end-swap cancel -- A retains strike")
     }
 
@@ -98,7 +102,7 @@ class InningsFolderTest {
         val sixDelivery = legalDelivery(listOf(RunEvent(OFF_BAT, 6, BOUNDARY)))
 
         val afterSix = foldInnings(stateAtBall5, listOf(sixDelivery), config)
-        assertEquals(6, afterSix.over.legalBallCount)
+        assertEquals(0, afterSix.over.legalBallCount, "a fresh OverState begins immediately on over-completion (§13.1)")
         assertEquals(9, afterSix.over.overNumber)
         assertEquals("B", afterSix.strikerBatterId)
 

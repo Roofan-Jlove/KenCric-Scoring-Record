@@ -1,0 +1,18 @@
+{
+  "id": "C02",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Single",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 1,
+    "batterRuns": 1,
+    "bowlerRunsCharged": 1,
+    "ranRuns": 1,
+    "rotates": true,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "C30",
+  "kind": "delivery_outcome",
+  "section": "21.6",
+  "description": "Dead ball -- bail dislodged accidentally",
+  "note": "Nothing changes except the log entry (§6.4)",
+  "legality": "DEAD_BALL",
+  "runEvents": [],
+  "deadBallReason": "bail dislodged accidentally",
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 0,
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": false
+  }
+}

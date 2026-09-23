@@ -1,0 +1,22 @@
+{
+  "id": "C09",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "One run + overthrow four",
+  "note": "Rotation driven by the 1, not the 5 (§7.5)",
+  "legality": "LEGAL",
+  "runEvents": [
+    {"origin": "OFF_BAT", "value": 1, "method": "RUN"},
+    {"origin": "OFF_BAT", "value": 4, "method": "OVERTHROW"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 5,
+    "batterRuns": 5,
+    "bowlerRunsCharged": 5,
+    "ranRuns": 1,
+    "rotates": true,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

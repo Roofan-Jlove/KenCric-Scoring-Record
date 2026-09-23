@@ -1,0 +1,15 @@
+{
+  "id": "C40",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Obstructing the field",
+  "note": "RunEvents: as applicable (§21.7's own table leaves this open) -- this fixture uses the zero-runs baseline case.",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "OBSTRUCTING_THE_FIELD", "outBatterId": "A", "endVacated": "STRIKER"},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": false,
+    "endResolutionNote": "Per §9.5"
+  }
+}

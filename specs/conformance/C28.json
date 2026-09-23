@@ -1,0 +1,15 @@
+{
+  "id": "C28",
+  "kind": "delivery_outcome",
+  "section": "21.6",
+  "description": "Penalty to batting side, no delivery bowled",
+  "note": "Per §7.8a this is NOT a DeliveryInput at all -- the engine processes it as its own zero-legal-ball, zero-batter-figure standalone event, entirely separate from any delivery.",
+  "standaloneEvent": true,
+  "penaltyRunEvent": {"origin": "PENALTY", "value": 5, "method": "AUTOMATIC", "awardedToTeamId": "battingTeamId"},
+  "expected": {
+    "totalRunsDelta": 5,
+    "extras": {"PENALTY": 5},
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": false
+  }
+}

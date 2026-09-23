@@ -1,0 +1,17 @@
+{
+  "id": "C55",
+  "kind": "rejection",
+  "section": "21.9",
+  "description": "shortRuns = 2 when the delivery's only RUN-method value is 1",
+  "input": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+    "shortRuns": 2
+  },
+  "expectedRule": "V3",
+  "reason": "Cannot disallow more running-runs than were attempted (§8)."
+}

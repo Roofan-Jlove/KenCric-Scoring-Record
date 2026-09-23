@@ -1,0 +1,14 @@
+{
+  "id": "C32",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Caught",
+  "legality": "LEGAL",
+  "runEvents": [],
+  "wicket": {"mode": "CAUGHT", "outBatterId": "A", "endVacated": "STRIKER", "fielderIds": ["fielder"]},
+  "expected": {
+    "total": 0,
+    "bowlerCredited": true,
+    "endResolutionNote": "New batter takes striker's end"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "C05",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Boundary four",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 4, "method": "BOUNDARY"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 4,
+    "batterRuns": 4,
+    "bowlerRunsCharged": 4,
+    "ranRuns": 0,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true,
+    "foursIncrement": true
+  }
+}

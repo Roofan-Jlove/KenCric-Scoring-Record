@@ -1,0 +1,18 @@
+{
+  "id": "C07",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "All-run five (rare but legal)",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 5, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 5,
+    "batterRuns": 5,
+    "bowlerRunsCharged": 5,
+    "ranRuns": 5,
+    "rotates": true,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

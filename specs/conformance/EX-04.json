@@ -1,0 +1,43 @@
+{
+  "id": "EX-04",
+  "kind": "worked_example",
+  "section": "22.3",
+  "description": "The over-boundary parity pair -- single on the last ball",
+  "note": "Same pre-state as EX-03 (legalBallCount=5 beforehand). This is the case implementers most often get backward: the run-swap and the end-swap cancel.",
+  "genesis": {
+    "batterCardLines": {},
+    "bowlerCardLines": {},
+    "score": {"totalRuns": 61, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 0},
+    "over": {"overNumber": 8, "bowlerId": "X", "legalBallCount": 5, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null
+  },
+  "config": {
+    "profile": {"ballsPerOver": 6, "freeHitOnNoBall": true},
+    "bowlingTeamId": "fielding",
+    "maxWicketsPerInnings": 10,
+    "oversAllotted": 20,
+    "target": null
+  },
+  "delivery": {
+    "legality": "LEGAL",
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "bowlerId": "X",
+    "isFreeHit": false,
+    "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}]
+  },
+  "expected": {
+    "batterCardLines": {"A": {"playerId": "A", "runs": 1, "ballsFaced": 1, "fours": 0, "sixes": 0, "status": "NOT_OUT"}},
+    "bowlerCardLines": {"X": {"playerId": "X", "legalBallsBowled": 1, "runsCharged": 1, "wickets": 0, "widesBowled": 0, "noBallsBowled": 0, "maidens": 0}},
+    "score": {"totalRuns": 62, "byes": 0, "legByes": 0, "wides": 0, "noBalls": 0, "penalty": 0, "wicketsLost": 2, "legalBallsBowled": 1},
+    "over": {"overNumber": 9, "bowlerId": "X", "legalBallCount": 0, "runsThisOver": 0, "isMaidenSoFar": true},
+    "strikerBatterId": "A",
+    "nonStrikerBatterId": "B",
+    "freeHitPending": false,
+    "inningsEndReason": null,
+    "resultNote": "A retains strike for over 9 -- the run-swap (odd ranRuns) and the end-swap cancel (§14.1)"
+  }
+}

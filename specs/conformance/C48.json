@@ -1,0 +1,20 @@
+{
+  "id": "C48",
+  "kind": "delivery_outcome",
+  "section": "21.8",
+  "description": "Free hit, run out while attempting a 2nd",
+  "note": "Accepted -- RUN_OUT remains valid on a free hit (§9.1); processed exactly as C37/C38.",
+  "legality": "LEGAL",
+  "isFreeHit": true,
+  "freeHitPendingBefore": true,
+  "runEvents": [{"origin": "OFF_BAT", "value": 1, "method": "RUN"}],
+  "wicket": {"mode": "RUN_OUT", "outBatterId": "A", "endVacated": "STRIKER", "crossedBeforeDismissal": false},
+  "expected": {
+    "total": 1,
+    "batterRuns": 1,
+    "bowlerCredited": false,
+    "endResolutionNote": "processed exactly as C37 (crossedBeforeDismissal=false variant)",
+    "freeHitPendingAfter": false,
+    "freeHitPendingAfterNote": "a free hit is used up by the next legal delivery regardless of outcome, including a wicket (§13.4)"
+  }
+}

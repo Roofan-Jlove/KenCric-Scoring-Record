@@ -1,0 +1,18 @@
+{
+  "id": "C03",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Two runs",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 2, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 2,
+    "batterRuns": 2,
+    "bowlerRunsCharged": 2,
+    "ranRuns": 2,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

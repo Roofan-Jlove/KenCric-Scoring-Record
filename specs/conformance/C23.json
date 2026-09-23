@@ -1,0 +1,21 @@
+{
+  "id": "C23",
+  "kind": "delivery_outcome",
+  "section": "21.4",
+  "description": "Second consecutive no-ball (free hit was already pending)",
+  "note": "delivery.isFreeHit stays false on a NO_BALL input itself (V9/§13.4) -- freeHitPendingBefore models the pre-existing pending state this case depends on",
+  "legality": "NO_BALL",
+  "isFreeHit": false,
+  "freeHitPendingBefore": true,
+  "runEvents": [{"origin": "NO_BALL_PENALTY", "value": 1, "method": "AUTOMATIC"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 1,
+    "extras": {"NO_BALLS": 1},
+    "ranRuns": 0,
+    "freeHitPendingAfter": true,
+    "freeHitPendingAfterNote": "persists, §13.4 -- still Yes, not newly set",
+    "consumesLegalBallSlot": false,
+    "incrementsBallsFaced": true
+  }
+}

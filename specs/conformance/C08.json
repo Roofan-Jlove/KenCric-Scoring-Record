@@ -1,0 +1,19 @@
+{
+  "id": "C08",
+  "kind": "delivery_outcome",
+  "section": "21.2",
+  "description": "Boundary six",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "OFF_BAT", "value": 6, "method": "BOUNDARY"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 6,
+    "batterRuns": 6,
+    "bowlerRunsCharged": 6,
+    "ranRuns": 0,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true,
+    "sixesIncrement": true
+  }
+}

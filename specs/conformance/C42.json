@@ -1,0 +1,15 @@
+{
+  "id": "C42",
+  "kind": "delivery_outcome",
+  "section": "21.7",
+  "description": "Non-striker run out (\"mankad\"), before delivery",
+  "note": "n/a -- no delivery occurred. Standalone EVT-NON-STRIKER-RUN-OUT, not a DeliveryInput (§9.6). Same executability gap as EX-10 -- applyDelivery() cannot fold this (TASK-0029's known gap).",
+  "standaloneEvent": true,
+  "executable": false,
+  "blockedBy": "mankad folding not yet implemented (TASK-0029's known gap)",
+  "wicket": {"mode": "RUN_OUT", "outBatterId": "B", "endVacated": "NON_STRIKER"},
+  "expected": {
+    "bowlerCredited": false,
+    "endResolutionNote": "Non-striker's end replaced; no ball/over/figures affected at all (§9.6)"
+  }
+}

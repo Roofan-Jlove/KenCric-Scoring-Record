@@ -1,0 +1,23 @@
+{
+  "id": "C46",
+  "kind": "delivery_outcome",
+  "section": "21.8",
+  "description": "Free hit, struck for 2, no wicket attempted",
+  "note": "Context: preceding ball was a free-hit-triggering no-ball. Scored exactly as C03 (2 runs).",
+  "legality": "LEGAL",
+  "isFreeHit": true,
+  "freeHitPendingBefore": true,
+  "runEvents": [{"origin": "OFF_BAT", "value": 2, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "total": 2,
+    "batterRuns": 2,
+    "bowlerRunsCharged": 2,
+    "ranRuns": 2,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true,
+    "freeHitPendingAfter": false,
+    "freeHitPendingAfterNote": "consumed after this ball (§13.4)"
+  }
+}

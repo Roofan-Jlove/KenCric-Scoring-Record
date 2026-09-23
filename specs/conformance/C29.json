@@ -1,0 +1,22 @@
+{
+  "id": "C29",
+  "kind": "delivery_outcome",
+  "section": "21.6",
+  "description": "Penalty to fielding side, attached to a 1-run legal delivery",
+  "note": "The 5 penalty runs credit the OTHER team's ledger directly, not this innings' total (§7.7) -- rawAggregateTotal (§7.2, side-blind) differs from battingSideTotalRuns (§12, side-aware, TASK-0024's updateInningsScoreState exclusion).",
+  "legality": "LEGAL",
+  "runEvents": [
+    {"origin": "OFF_BAT", "value": 1, "method": "RUN"},
+    {"origin": "PENALTY", "value": 5, "method": "AUTOMATIC", "awardedToTeamId": "bowlingTeamId"}
+  ],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "rawAggregateTotal": 6,
+    "battingSideTotalRuns": 1,
+    "batterRuns": 1,
+    "extras": {"PENALTY": 5},
+    "ranRuns": 1,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}

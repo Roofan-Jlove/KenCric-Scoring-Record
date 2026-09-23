@@ -1,0 +1,16 @@
+{
+  "id": "C26",
+  "kind": "delivery_outcome",
+  "section": "21.5",
+  "description": "Two leg-byes",
+  "legality": "LEGAL",
+  "runEvents": [{"origin": "LEG_BYE", "value": 2, "method": "RUN"}],
+  "isOverFinalLegalBall": false,
+  "expected": {
+    "extras": {"LEG_BYES": 2},
+    "ranRuns": 2,
+    "rotates": false,
+    "consumesLegalBallSlot": true,
+    "incrementsBallsFaced": true
+  }
+}
