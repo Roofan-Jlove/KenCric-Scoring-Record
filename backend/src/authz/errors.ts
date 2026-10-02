@@ -72,6 +72,26 @@ export function staleVersionError(detail: string, instance: string): ProblemDeta
 }
 
 /**
+ * TASK-0100: `api-specification.md §5.2`'s own registry entry,
+ * `state/invalid-transition` (409) — "the requested action is illegal
+ * in the resource's current state... only via the correct alternate
+ * path, never a bare retry." Distinct from `staleVersionError`'s
+ * `concurrency/stale-version`: that one is an optimistic-concurrency
+ * race on a mutable row; this one is attempting an illegal state
+ * change on a resource that forbids it outright (e.g. `reference_data`'s
+ * own immutability, or a match already past a lifecycle gate).
+ */
+export function invalidTransitionError(detail: string, instance: string): ProblemDetails {
+  return {
+    type: `${ERROR_BASE_URI}/state/invalid-transition`,
+    title: "Conflict",
+    status: 409,
+    detail,
+    instance,
+  };
+}
+
+/**
  * TASK-0044: api-specification.md §5.2's `not-found` (404) --
  * "Resource doesn't exist, or exists but RLS makes it invisible to this
  * caller -- the response is identical in both cases, deliberately, to
