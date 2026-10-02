@@ -92,6 +92,23 @@ export function invalidTransitionError(detail: string, instance: string): Proble
 }
 
 /**
+ * TASK-0105: `api-specification.md §11.1`'s own named error,
+ * `reconciliation/blocked` (422) -- matches `apps/web/src/screens/
+ * UX-22-match-summary/signOffForm.ts`'s own `code: "reconciliation/
+ * blocked"` literal (`TASK-0079`). Distinct from
+ * `businessRuleValidationError`'s generic `validation/business-rule`.
+ */
+export function reconciliationBlockedError(detail: string, instance: string): ProblemDetails {
+  return {
+    type: `${ERROR_BASE_URI}/reconciliation/blocked`,
+    title: "Unprocessable Entity",
+    status: 422,
+    detail,
+    instance,
+  };
+}
+
+/**
  * TASK-0044: api-specification.md §5.2's `not-found` (404) --
  * "Resource doesn't exist, or exists but RLS makes it invisible to this
  * caller -- the response is identical in both cases, deliberately, to
