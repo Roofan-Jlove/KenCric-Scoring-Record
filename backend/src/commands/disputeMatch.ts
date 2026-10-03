@@ -35,6 +35,16 @@
  * endpoint, which would check `matches.state !== "DISPUTED"` the same
  * way `validateFrozenFields` already checks other match-state
  * invariants in `matches.ts`.
+ *
+ * **`TASK-0124` extends this module with `getDispute`/`listDisputes`**
+ * (`GET /disputes/{id}` / `GET /disputes`) -- the one remaining `§6.3`
+ * item with no invented contract at all: `FR-159`'s own Description
+ * text names "view dispute trails" as part of the org-admin console,
+ * and list/get-one is the same mechanical, non-speculative shape every
+ * other `§6.1` resource's own module already uses, applied here to the
+ * `disputes` table rather than ported from a written endpoint spec
+ * (none exists for this specific pair, unlike every prior `§6.1`/`§11`
+ * task) -- the closest this cluster gets to "no invention needed."
  */
 
 import { businessRuleValidationError, invalidTransitionError, notFoundError, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
@@ -63,6 +73,8 @@ export interface DisputeStore {
   getOpenByMatchId(matchId: string): DisputeRow | null;
   insert(row: DisputeRow): void;
   update(row: DisputeRow): void;
+  /** TASK-0124: backs `listDisputes` -- every row, unfiltered; filtering/paging happens in `listDisputes` itself, same division of labor every other `§6.1` resource's own `list()` method already uses. */
+  list(): DisputeRow[];
 }
 
 export interface LockMatchForDisputePayload {
@@ -173,6 +185,74 @@ export function adjudicateDispute(
   return { outcome: "adjudicated", row: updatedDispute };
 }
 
+/**
+ * TASK-0124: `GET /disputes/{id}`. `FR-159`'s own Description text
+ * names "view dispute trails" as part of the org-admin console --
+ * mechanical, non-invented, the same generic get-one shape every other
+ * `§6.1` resource already uses, now applied to the `disputes` table
+ * `TASK-0122` built.
+ */
+export type GetDisputeResult =
+  | { outcome: "found"; row: DisputeRow }
+  | { outcome: "rejected"; problem: ProblemDetails };
+
+export function getDispute(id: string, store: DisputeStore, instance: string): GetDisputeResult {
+  const row = store.get(id);
+  if (!row) {
+    return { outcome: "rejected", problem: notFoundError(`No dispute visible with id ${id}`, instance) };
+  }
+  return { outcome: "found", row };
+}
+
+export interface ListDisputesQuery {
+  after?: string | null;
+  limit?: number;
+  matchId?: string | null;
+  status?: DisputeStatus | null;
+}
+
+export interface ListDisputesResult {
+  items: DisputeRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/** §6's own defaults: `[DEFAULT] 50`, `[DEFAULT] max 200`. */
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+
+/**
+ * `GET /disputes`. Keyset-paginated by `id` ascending (§6);
+ * `matchId`/`status` are both the table's own real `IX` columns
+ * (`§8.6`), the same "filter on what the table actually indexes, don't
+ * invent a filter the index doesn't back" reasoning every prior
+ * `§6.1` resource's own `list` function has already used.
+ */
+export function listDisputes(query: ListDisputesQuery, store: DisputeStore): ListDisputesResult {
+  const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+
+  let rows = store.list().slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  if (query.matchId !== undefined && query.matchId !== null) {
+    rows = rows.filter((r) => r.matchId === query.matchId);
+  }
+
+  if (query.status !== undefined && query.status !== null) {
+    rows = rows.filter((r) => r.status === query.status);
+  }
+
+  if (query.after) {
+    const cursor = query.after;
+    rows = rows.filter((r) => r.id > cursor);
+  }
+
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const nextCursor = hasMore ? page[page.length - 1].id : null;
+
+  return { items: page, nextCursor, hasMore };
+}
+
 /** An in-memory DisputeStore for tests -- not a production adapter. */
 export class InMemoryDisputeStore implements DisputeStore {
   private readonly rows = new Map<string, DisputeRow>();
@@ -194,5 +274,9 @@ export class InMemoryDisputeStore implements DisputeStore {
 
   update(row: DisputeRow): void {
     this.rows.set(row.id, row);
+  }
+
+  list(): DisputeRow[] {
+    return Array.from(this.rows.values());
   }
 }

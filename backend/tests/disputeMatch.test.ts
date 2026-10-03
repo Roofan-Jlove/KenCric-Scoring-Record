@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryMatchStore, type MatchRow, type MatchState } from "../src/commands/matches.js";
-import { adjudicateDispute, InMemoryDisputeStore, lockMatchForDispute } from "../src/commands/disputeMatch.js";
+import { adjudicateDispute, getDispute, InMemoryDisputeStore, listDisputes, lockMatchForDispute } from "../src/commands/disputeMatch.js";
 
 function seedMatch(store: InMemoryMatchStore, id: string, state: MatchState): MatchRow {
   const row: MatchRow = {
@@ -181,5 +181,94 @@ describe("adjudicateDispute (TASK-0123)", () => {
     expect(result.outcome).toBe("rejected");
     if (result.outcome !== "rejected") throw new Error("unreachable");
     expect(result.problem.status).toBe(404);
+  });
+});
+
+describe("getDispute (TASK-0124)", () => {
+  it("returns the dispute when it exists", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+    lockMatchForDispute("match-1", { reason: "x" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1");
+
+    const result = getDispute("dispute-1", disputeStore, "req-1");
+    expect(result.outcome).toBe("found");
+    if (result.outcome !== "found") throw new Error("unreachable");
+    expect(result.row.id).toBe("dispute-1");
+  });
+
+  it("404s on an unknown dispute id", () => {
+    const disputeStore = new InMemoryDisputeStore();
+    const result = getDispute("no-such-dispute", disputeStore, "req-1");
+    expect(result.outcome).toBe("rejected");
+    if (result.outcome !== "rejected") throw new Error("unreachable");
+    expect(result.problem.status).toBe(404);
+  });
+});
+
+describe("listDisputes (TASK-0124)", () => {
+  function seedTwoDisputes(matchStore: InMemoryMatchStore, disputeStore: InMemoryDisputeStore) {
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+    seedMatch(matchStore, "match-2", "IN_PROGRESS");
+    lockMatchForDispute("match-1", { reason: "a" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1");
+    lockMatchForDispute("match-2", { reason: "b" }, matchStore, disputeStore, "dispute-2", "admin-1", "now", "req-2");
+  }
+
+  it("lists every dispute with no filter", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedTwoDisputes(matchStore, disputeStore);
+
+    const result = listDisputes({}, disputeStore);
+    expect(result.items).toHaveLength(2);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("filters by matchId", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedTwoDisputes(matchStore, disputeStore);
+
+    const result = listDisputes({ matchId: "match-1" }, disputeStore);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].matchId).toBe("match-1");
+  });
+
+  it("filters by status", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedTwoDisputes(matchStore, disputeStore);
+    adjudicateDispute("match-1", { ruling: "resolved" }, matchStore, disputeStore, "admin-2", "later", "req-3");
+
+    const open = listDisputes({ status: "OPEN" }, disputeStore);
+    expect(open.items).toHaveLength(1);
+    expect(open.items[0].matchId).toBe("match-2");
+
+    const adjudicated = listDisputes({ status: "ADJUDICATED" }, disputeStore);
+    expect(adjudicated.items).toHaveLength(1);
+    expect(adjudicated.items[0].matchId).toBe("match-1");
+  });
+
+  it("respects limit and reports hasMore/nextCursor", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedTwoDisputes(matchStore, disputeStore);
+
+    const result = listDisputes({ limit: 1 }, disputeStore);
+    expect(result.items).toHaveLength(1);
+    expect(result.hasMore).toBe(true);
+    expect(result.nextCursor).toBe(result.items[0].id);
+  });
+
+  it("paginates past a cursor via after", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedTwoDisputes(matchStore, disputeStore);
+
+    const first = listDisputes({ limit: 1 }, disputeStore);
+    const second = listDisputes({ limit: 1, after: first.nextCursor }, disputeStore);
+    expect(second.items).toHaveLength(1);
+    expect(second.items[0].id).not.toBe(first.items[0].id);
+    expect(second.hasMore).toBe(false);
   });
 });
