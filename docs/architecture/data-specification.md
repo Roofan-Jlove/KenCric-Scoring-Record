@@ -186,13 +186,37 @@ Supporting tables referenced for FK completeness but not separately detailed as 
 | `user_id` | `uuid` | no | — | FK → `users.id`. |
 | `organization_id` | `uuid` | no | — | FK → `organizations.id`. |
 | `roles` | `text[]` | no | `{}` | The 12 additive roles (`foundation §4`); capability = union. |
-| `status` | `enum(ACTIVE, DEACTIVATED)` | no | `ACTIVE` | |
+| `status` | `enum(ACTIVE, DEACTIVATED)` | no | `ACTIVE` | A membership row is only ever created already-`ACTIVE` (via `invitations.accept`, §3.4) — there is no `INVITED` value here; see §3.4's own note on why. |
+| `invited_at` | `timestamptz` | yes | — | **Added by RCR, 2026-10-03 (`TASK-0119`).** Copied from `invitations.invited_at` at accept time. Null for a membership created by some other path than an invitation (none exists yet, but not assumed impossible). Resolves `domain-model.md`'s own `ENT-MEMBERSHIP` attribute list (`invitedAt?`), which named this field before this table had a column for it. |
+| `accepted_at` | `timestamptz` | yes | — | **Added by RCR, 2026-10-03 (`TASK-0119`).** Set to the row's own `created_at` at accept time (the two are equal by construction, kept as separate columns since they answer different questions: "when did this relationship begin" vs. "when was the invitation accepted"). Resolves `domain-model.md`'s own `ENT-MEMBERSHIP` attribute list (`acceptedAt?`). |
 | `row_version` | `integer` | no | `1` | |
 | `created_at`, `created_by`, `updated_at`, `updated_by` | — | per §1.5 | — | |
 
 **PK:** `id`. **FK:** `user_id → users.id`, `organization_id → organizations.id`. **UQ:** `(user_id, organization_id)`. **IX:** `organization_id`, `user_id`.
 **Soft deletion:** policy 2 — `status = DEACTIVATED` (never a row delete): a deactivated member "performs no new actions but retains authorship of past events" (`BR-024`), which requires the row — and therefore the `actor_ref` it anchors — to persist.
 **Sync model:** CRUD-entity; role changes are network-required (`docs/ux/ux-specification.md UX-28`'s explicit offline-disabling for this exact reason).
+
+### 3.4 `invitations`
+
+*Purpose:* **added by RCR, 2026-10-03 (`TASK-0119`)**, resolving the genuine schema gap `TASK-0102`'s own mint note first flagged and `implementation-task-backlog.md §6.3` tracked since: `domain-model.md`'s own `ENT-MEMBERSHIP` Lifecycle line (`Invited → Active ↔ Deactivated`) names an `Invited` state `§3.3`'s own `status` enum (`ACTIVE`/`DEACTIVATED` only) cannot represent. **Resolution, reasoned explicitly rather than silently patched:** an invitation is not a pending `memberships` row at all — it is its own small, ephemeral, pre-membership record (`api-specification.md §11.5`'s own `POST /organizations/{orgId}/invitations` already specifies exactly this shape: a `token`/`expiresAt` pair, with the *accept* endpoint's own response being "the new `memberships` row," confirming the row is created only on acceptance, never before). `domain-model.md`'s "Invited" lifecycle state is therefore this table's own row, not a third value of `memberships.status` — no change to that enum, no `ALTER TYPE`, nothing invented beyond what `§11.5` already specified. `CMD-INVITE-MEMBER` (`domain-model.md §CTX-IDENTITY`) creates a row here; `CMD-ACCEPT-INVITE` reads it, then inserts the real `memberships` row (populating its new `invited_at`/`accepted_at` columns, §3.3) and marks this row `ACCEPTED`.
+
+| Field | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | `uuid` | no | — | |
+| `organization_id` | `uuid` | no | — | FK → `organizations.id`. |
+| `email` | `text` | no | — | The invitee's email — `api-specification.md §11.5`'s own send-request field. |
+| `roles` | `text[]` | no | `{}` | The roles the resulting `memberships` row will carry on acceptance; same 12-role vocabulary as `§3.3`. |
+| `token` | `text` | no | — | Opaque, unguessable — delivered out-of-band by email per `§11.5`'s own note, never returned to any caller but the sending admin's own confirmation view. |
+| `status` | `enum(PENDING, ACCEPTED, REVOKED)` | no | `PENDING` | No `EXPIRED` value — expiry is a function of `expires_at < now()` at read/accept time, not a stored state (avoids a background job just to flip a status column). |
+| `expires_at` | `timestamptz` | no | — | `§11.5`'s own send-request field. An accept attempt past this instant is `410 Gone` (`invitation/expired`, a new `errors.ts` constructor — the canonical registry, `api-specification.md §5.2`, had no entry for this; `§11.5`'s own text names the status but the registry's own table never lists it, the same "registry gap" shape `TASK-0100`/`TASK-0105` each already found and filled once). |
+| `invited_at` | `timestamptz` | no | — | When this row was created — the value later copied onto `memberships.invited_at`. |
+| `invited_by` | `uuid` | no | — | The sending org-admin's actor ref. |
+| `accepted_at` | `timestamptz` | yes | — | Set only on acceptance; null while `PENDING`/`REVOKED`. |
+
+**PK:** `id`. **FK:** `organization_id → organizations.id`. **UQ:** `token`. **IX:** `organization_id`, `token`.
+**Soft deletion:** policy 1 — never deleted, the same "the row anchors a historical fact" reasoning `§3.3` already uses, scaled down: once `ACCEPTED`/`REVOKED` the row is a terminal audit record of who was invited, by whom, and when, not a live entity to prune.
+**Sync model:** CRUD-entity; network-required — sending and accepting an invitation are both already network-required actions by `§11.5`'s own design (an org-admin console action and an account-linking action respectively), the same category `§3.3`'s own role-change note already applies to.
+**Open item, flagged not resolved:** `§11.5`'s own Authz line for *accept* is "authenticated as the invited email" — an identity match, not a role check, and not named in `§11.5`'s own Errors line as a command-layer-contract error (unlike `TASK-0105`'s explicit `403`). Per this session's own established default (`FA-7`), this is left to the auth/RLS layer, not re-implemented as an explicit check inside the command module — flagged here rather than silently assumed resolved.
 
 ---
 
@@ -759,7 +783,7 @@ A direct summary of the design decisions above, stated once as the answer to the
 
 | This document | Source |
 |---|---|
-| §3 Identity & Tenancy | `system-architecture.md §3.5/§3.8/§3.9`, `SEC-002/004/005`, `BR-001/024/025` |
+| §3 Identity & Tenancy | `system-architecture.md §3.5/§3.8/§3.9`, `SEC-002/004/005`, `BR-001/024/025`; §3.4 `invitations` additionally traces to `FR-008`, `api-specification.md §11.5`, `domain-model.md`'s `ENT-MEMBERSHIP` Lifecycle |
 | §4 Participants | `FR-030…040`, `BR-009…012/044`, `A-24` |
 | §5 Match & Officials | `FR-016…029`, `BR-017/026/032/045`, `MINV-05` |
 | §6 `match_events` | `live-scoring.md §16`, `system-architecture.md §3.5/§4.6`, `MINV-01…03` |
@@ -788,4 +812,5 @@ A direct summary of the design decisions above, stated once as the answer to the
 | Version | Date | Change |
 |---|---|---|
 | 0.1.0 | 2026-09-22 | Initial data specification. §1 conventions: the write-model/read-model (CQRS) split stated as the organising principle; type notation; the client-generated-UUID identity strategy; the two distinct sync models (event-sourced vs. CRUD-entity) explicitly separated and matched to data stakes; audit-field policy; the two distinct meanings of "version" (optimistic concurrency vs. domain versioning) disambiguated; a three-way soft-deletion policy (never / soft-deactivate / ordinary hard-delete) applied per table, not blanket. §2 ASCII entity-relationship overview. §3–§10: full field-by-field specification (type, nullability, default, notes) with explicit PK/FK/UQ/CK/IX and soft-deletion/sync-model statements for 22 tables across Identity & Tenancy (`users`, `organizations`, `memberships`), Participants (`teams`, `players`, `squad_members`), Match & Officials (`matches`, `officials`, `match_officials`, `reference_data`), the event store (`match_events`), the scoring read model (`innings`, `overs`, `deliveries`, `delivery_run_events` — the normalised Runs & Extras table — `wickets`, `partnerships`, `batter_card_lines`, `bowler_card_lines`), sign-off & snapshots (`sign_offs`, `reconciliation_reports`, `match_snapshots`, `dls_revisions`, `divergences`), sync records (`sync_cursors`, `writer_fences`, `outbox`), and audit records (`audit_log`). §11 explicit six-point summary of how the model supports offline-first operation. §12 traceability, §13 five open items including an explicit request for confirmation on the specification-vs-DDL format choice. A structured, fully-typed schema specification — not executable DDL — continuing and completing `system-architecture.md §4.6`'s "schema sketch, not DDL" convention. |
+| 0.1.0 | 2026-10-03 | **RCR (`TASK-0119`, `implementation-task-backlog.md §6.3`): added §3.4 `invitations` (new table, 23rd in this document) and two new nullable columns on §3.3 `memberships` (`invited_at`, `accepted_at`).** Resolves a genuine schema gap tracked since `TASK-0102`: `domain-model.md`'s own `ENT-MEMBERSHIP` Lifecycle (`Invited → Active ↔ Deactivated`) names a state `memberships.status`'s `ACTIVE`/`DEACTIVATED`-only enum cannot represent. **Resolution:** an invitation is its own pre-membership record, not a third `status` value — `api-specification.md §11.5`'s own contract already implies this (the accept endpoint's response is "the new `memberships` row," meaning the row doesn't exist before acceptance). No `ALTER TYPE`, no change to the existing enum. The two new `memberships` columns additionally resolve a second, smaller gap: `domain-model.md`'s own `ENT-MEMBERSHIP` attribute list already named `invitedAt?`/`acceptedAt?` as entity attributes, which this table had no columns for until now. A real registry gap also found and flagged (not yet filled here, left to `TASK-0120`'s own implementation): `§11.5`'s own text names a `410 Gone` ("expired invitation") response, but `api-specification.md §5.2`'s own canonical error-code registry table never lists it. |
 
