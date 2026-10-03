@@ -34,10 +34,22 @@ export interface CreateOrganizationPayload {
   branding?: unknown | null;
 }
 
+/**
+ * `data-specification.md §3.2` -- added by RCR, `TASK-0133`, resolving
+ * `§13`'s own `DSQ-2` ("whether `organizations` needs a soft-delete/
+ * decommission path... not modelled... revisit if an org-offboarding
+ * flow becomes a requirement"). Mirrors `domain-model.md`'s own
+ * `ENT-ORGANIZATION` Lifecycle (`Created → Active ↔ Suspended →
+ * Deleted`) exactly.
+ */
+export type OrganizationStatus = "ACTIVE" | "SUSPENDED" | "DELETED";
+
 export interface OrganizationRow {
   id: string;
   name: string;
   branding: unknown | null;
+  /** Added by `TASK-0133`'s own `DSQ-2` resolution; defaults `"ACTIVE"` at creation, see `createOrganization` below. */
+  status: OrganizationStatus;
   rowVersion: number;
   createdAt: string;
   createdBy: string;
@@ -95,6 +107,7 @@ export function createOrganization(
     id: validated.id,
     name: validated.name,
     branding: validated.branding ?? null,
+    status: "ACTIVE",
     rowVersion: 1,
     createdAt: nowIso,
     createdBy: actorRef,
