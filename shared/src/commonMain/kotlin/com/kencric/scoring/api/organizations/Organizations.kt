@@ -20,10 +20,14 @@ data class CreateOrganizationPayload(
     val branding: Any? = null,
 )
 
+/** `data-specification.md §3.2` -- added by `TASK-0134`, mirroring the TS side's own `TASK-0133` RCR resolving `DSQ-2`. */
+enum class OrganizationStatus { ACTIVE, SUSPENDED, DELETED }
+
 data class OrganizationRow(
     val id: String,
     val name: String,
     val branding: Any?,
+    val status: OrganizationStatus = OrganizationStatus.ACTIVE,
     val rowVersion: Int,
     val createdAt: String,
     val createdBy: String,
@@ -69,6 +73,7 @@ fun createOrganization(
         id = payload.id,
         name = payload.name,
         branding = payload.branding,
+        status = OrganizationStatus.ACTIVE,
         rowVersion = 1,
         createdAt = nowIso,
         createdBy = actorRef,
