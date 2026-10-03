@@ -9,6 +9,14 @@
  * a post-hoc detection, not an ingest-time one," and `§8.5`'s own "Sync
  * model" note: "server-computed... not itself pushed by a client."
  * There is nothing for a client-side type to do here at all.
+ *
+ * **`TASK-0125` widens `DivergenceRecord`/`DivergenceStore`** (adding
+ * `id`/`proposedValue`/`proposedBy`/`confirmedBy`/`resolvedEventId`,
+ * and `get`/`update`) to support `divergenceResolution.ts`'s own
+ * `proposeDivergenceResolution`/`confirmDivergenceResolution` commands
+ * -- the `§6.3` `UX-25` dual-scorer item, pulled into scope by explicit
+ * priority override. All additions are optional/additive; this
+ * module's own detection logic and tests are unchanged.
  */
 
 export interface StreamDeliveryRecord {
@@ -33,6 +41,19 @@ export interface DivergenceRecord {
   valueA: unknown;
   valueB: unknown;
   status: DivergenceStatus;
+  /**
+   * `data-specification.md §8.5`'s remaining columns -- widened by
+   * `TASK-0125` to support `divergenceResolution.ts`'s own propose/
+   * confirm commands. All optional so this task's own existing
+   * construction sites (above) keep compiling unchanged -- `id` is
+   * assigned by the store at insert time (see `InMemoryDivergenceStore`
+   * below), never by this detection logic itself.
+   */
+  id?: string;
+  proposedValue?: unknown;
+  proposedBy?: string;
+  confirmedBy?: string;
+  resolvedEventId?: string;
 }
 
 /** Structural equality sufficient for primitive/plain-object field values (runs, wicket detail, striker id, …) -- not a general-purpose deep-equal library, deliberately kept minimal for this task's own scope. */
@@ -84,6 +105,9 @@ export function detectDivergences(
 export interface DivergenceStore {
   hasUnresolved(matchId: string, overBall: string, field: string): boolean;
   insert(record: DivergenceRecord): void;
+  /** `TASK-0125`: backs `divergenceResolution.ts`'s propose/confirm commands. */
+  get(id: string): DivergenceRecord | null;
+  update(record: DivergenceRecord): void;
 }
 
 /**
@@ -117,6 +141,7 @@ export function detectAndRecordDivergences(
 /** An in-memory DivergenceStore for tests -- not a production adapter. */
 export class InMemoryDivergenceStore implements DivergenceStore {
   private readonly records: DivergenceRecord[] = [];
+  private nextId = 1;
 
   hasUnresolved(matchId: string, overBall: string, field: string): boolean {
     return this.records.some(
@@ -124,8 +149,21 @@ export class InMemoryDivergenceStore implements DivergenceStore {
     );
   }
 
+  /** `TASK-0125`: assigns `id` here, simulating a real DB's server-generated id -- `data-specification.md §8.5`'s own field table gives `divergences.id` no "client-generated" note, unlike most other tables in this schema. */
   insert(record: DivergenceRecord): void {
+    if (record.id === undefined) {
+      record.id = `divergence-${this.nextId++}`;
+    }
     this.records.push(record);
+  }
+
+  get(id: string): DivergenceRecord | null {
+    return this.records.find((r) => r.id === id) ?? null;
+  }
+
+  update(record: DivergenceRecord): void {
+    const index = this.records.findIndex((r) => r.id === record.id);
+    if (index !== -1) this.records[index] = record;
   }
 
   all(): readonly DivergenceRecord[] {
