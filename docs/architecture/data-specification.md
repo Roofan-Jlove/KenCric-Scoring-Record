@@ -302,7 +302,7 @@ Supporting tables referenced for FK completeness but not separately detailed as 
 | `venue`, `scheduled_start` | `text`, `timestamptz` | yes/yes | — | |
 | `match_timezone` | `text` | no | — | IANA zone name; every match timestamp displays in this zone (`NFR-059`). |
 | `min_overs_for_result` | `integer` | yes | — | `FR-029`. |
-| `state` | `enum(SCHEDULED, READY, IN_PROGRESS, INNINGS_BREAK, PAUSED, COMPLETE, ABANDONED)` | no | `SCHEDULED` | Mirrors `SM-MATCH`; this is the **only** authoritative store of current lifecycle state — a read-model convenience, itself re-derivable from `match_events` (`MBR-07`), materialised here for fast RLS-gated reads. |
+| `state` | `enum(SCHEDULED, READY, IN_PROGRESS, INNINGS_BREAK, PAUSED, COMPLETE, ABANDONED, DISPUTED)` | no | `SCHEDULED` | Mirrors `SM-MATCH`; this is the **only** authoritative store of current lifecycle state — a read-model convenience, itself re-derivable from `match_events` (`MBR-07`), materialised here for fast RLS-gated reads. **`DISPUTED` added by RCR, 2026-10-04 (`TASK-0122`)** — `api-specification.md §11.4`'s own contract ("`matches.state` transition reflected" on a dispute lock) assumed a value this enum didn't actually have; see `§8.6` `disputes`' own note for the full resolution, including how the match's pre-lock state is recovered on adjudication. |
 | `result` | `jsonb` | yes | — | `VO-RESULT` (type, method, margin, statement); re-derivable, never independently asserted (`MBR-11`). |
 | `row_version` | `integer` | no | `1` | |
 | `created_at`, `created_by`, `updated_at`, `updated_by` | — | per §1.5 | — | |
@@ -680,6 +680,32 @@ Distinct from §7: these tables are **not silently disposable** — a `match_sna
 **Soft deletion:** none — a resolved divergence remains on record permanently as part of the audit trail of how two independent records were reconciled.
 **Sync model:** server-computed (the alignment pass requires both streams present, §10.2 of the offline-first spec) — not itself pushed by a client; the resolution *proposal/confirmation* actions are event-sourced commands.
 
+### 8.6 `disputes`
+
+*Purpose:* **added by RCR, 2026-10-04 (`TASK-0122`)** — one row per match-level dispute lock and its eventual adjudication (`ENT-DISPUTE`'s own match-scoped half; see the note below on the competition-scoped half this table deliberately does not attempt to model). Backs `api-specification.md §11.4`'s `POST /matches/{matchId}/dispute` + `.../dispute/adjudicate`, and `AUD-012`'s own requirement that the lock, the ruling, and any amendments all be present and linked.
+
+**A real domain-model tension found and flagged, not silently resolved:** `domain-model.md`'s own `ENT-DISPUTE` is defined entirely under `CTX-COMPETITION`, owned by `AGG-COMPETITION`/`ENT-FIXTURE` (`domain-model.md §6.2`/`§4.2`) — a context this backlog has never built (`competitions`/`fixtures` are `V2`, out of scope everywhere else they've come up, e.g. `§6.1`'s own generation rule). But `api-specification.md §11.4`'s own contract operates directly on a single `matches` row, independent of any fixture or competition — a match can be disputed whether or not it is part of a competition at all (the overwhelming common case in this app, per `matches.organization_id`'s own nullable "guest match" design). This table follows `§11.4`'s own, more concretely specified, match-scoped contract — **not** `domain-model.md`'s competition-scoped `ENT-DISPUTE` — since building the latter would mean building the entire unbuilt Competitions epic first. The competition-level half (`BR-015`'s "standings recompute only from non-disputed matches") remains genuinely unbuilt, same as every other competitions-dependent item in this backlog.
+
+| Field | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | `uuid` | no | — | |
+| `match_id` | `uuid` | no | — | FK → `matches.id`. |
+| `status` | `enum(OPEN, ADJUDICATED)` | no | `OPEN` | Collapsed from `domain-model.md`'s own three-value `OPEN \| UNDER_REVIEW \| ADJUDICATED` — `§11.4`'s own two-endpoint contract (lock, then adjudicate) has no separate "mark under review" step; `UNDER_REVIEW` is not modelled as a distinct status here, a deliberate simplification tracking the actual endpoint pair, not the richer competition-scoped lifecycle. |
+| `reason` | `text` | no | — | The lock request's own field (`§11.4`). |
+| `locked_from_state` | `text` | no | — | The match's own `state` (`§5.1`) **immediately before** the lock — restored verbatim on adjudication, since a match may be locked from `IN_PROGRESS`, `INNINGS_BREAK`, `PAUSED`, or `COMPLETE` and must return to exactly that state, not a hardcoded one. |
+| `locked_by` | `uuid` | no | — | FK → `users.id`. |
+| `locked_at` | `timestamptz` | no | — | |
+| `ruling` | `text` | yes | — | Set only on adjudication (`§11.4`'s own Adjudicate-request field). |
+| `resulting_corrections` | `uuid[]` | yes | — | References into `match_events.event_id`, validated at write time, not FK-enforced as an array — same convention `wickets.fielder_ids` (`§7.5`) already uses. Per `§11.4`'s own text, these ids are **authorised** by the adjudication, not created by it — they are processed through the normal correction path (`§12` of the API spec) elsewhere. |
+| `adjudicated_by` | `uuid` | yes | — | FK → `users.id`. |
+| `adjudicated_at` | `timestamptz` | yes | — | |
+| `row_version` | `integer` | no | `1` | |
+
+**PK:** `id`. **FK:** `match_id → matches.id`, `locked_by/adjudicated_by → users.id`. **IX:** `match_id`, `status`.
+**Business rule, app-enforced not DB-enforced:** at most one `OPEN` dispute per `match_id` at a time — the same "a cross-row business rule, checked in the command layer, not a `CHECK` constraint" shape `match_officials`' own `OFCL-003` (exactly one `HEAD_SCORER`) already established.
+**Soft deletion:** policy 1 — never deleted, the same permanent-ruling-trail reasoning `sign_offs` (`§8.1`) already uses; `AUD-012` requires the full lock-through-adjudication record to remain readable indefinitely.
+**Sync model:** CRUD-entity; network-required — an org-admin console action, the same category `§3.3`'s own role-change note and `§3.4`'s own invitation actions already use.
+
 ---
 
 ## 9. Sync records
@@ -788,7 +814,7 @@ A direct summary of the design decisions above, stated once as the answer to the
 | §5 Match & Officials | `FR-016…029`, `BR-017/026/032/045`, `MINV-05` |
 | §6 `match_events` | `live-scoring.md §16`, `system-architecture.md §3.5/§4.6`, `MINV-01…03` |
 | §7 Scoring read model | `live-scoring.md §7–§15`, domain model `ENT-*`, `MBR-07` |
-| §8 Sign-off & snapshots | `FR-097…112`, `BR-006/007/021`, `AUD-006/008/009` |
+| §8 Sign-off & snapshots | `FR-097…112`, `BR-006/007/021`, `AUD-006/008/009`; §8.6 `disputes` additionally traces to `FR-106`, `BR-016`, `AUD-012`, `api-specification.md §11.4` |
 | §9 Sync records | `offline-first-specification.md §3/§7/§10/§11` |
 | §10 Audit records | `AUD-001…015`, `system-architecture.md §3.12` |
 | §11 Offline-first summary | `offline-first-specification.md` (whole document) |
@@ -813,4 +839,5 @@ A direct summary of the design decisions above, stated once as the answer to the
 |---|---|---|
 | 0.1.0 | 2026-09-22 | Initial data specification. §1 conventions: the write-model/read-model (CQRS) split stated as the organising principle; type notation; the client-generated-UUID identity strategy; the two distinct sync models (event-sourced vs. CRUD-entity) explicitly separated and matched to data stakes; audit-field policy; the two distinct meanings of "version" (optimistic concurrency vs. domain versioning) disambiguated; a three-way soft-deletion policy (never / soft-deactivate / ordinary hard-delete) applied per table, not blanket. §2 ASCII entity-relationship overview. §3–§10: full field-by-field specification (type, nullability, default, notes) with explicit PK/FK/UQ/CK/IX and soft-deletion/sync-model statements for 22 tables across Identity & Tenancy (`users`, `organizations`, `memberships`), Participants (`teams`, `players`, `squad_members`), Match & Officials (`matches`, `officials`, `match_officials`, `reference_data`), the event store (`match_events`), the scoring read model (`innings`, `overs`, `deliveries`, `delivery_run_events` — the normalised Runs & Extras table — `wickets`, `partnerships`, `batter_card_lines`, `bowler_card_lines`), sign-off & snapshots (`sign_offs`, `reconciliation_reports`, `match_snapshots`, `dls_revisions`, `divergences`), sync records (`sync_cursors`, `writer_fences`, `outbox`), and audit records (`audit_log`). §11 explicit six-point summary of how the model supports offline-first operation. §12 traceability, §13 five open items including an explicit request for confirmation on the specification-vs-DDL format choice. A structured, fully-typed schema specification — not executable DDL — continuing and completing `system-architecture.md §4.6`'s "schema sketch, not DDL" convention. |
 | 0.1.0 | 2026-10-03 | **RCR (`TASK-0119`, `implementation-task-backlog.md §6.3`): added §3.4 `invitations` (new table, 23rd in this document) and two new nullable columns on §3.3 `memberships` (`invited_at`, `accepted_at`).** Resolves a genuine schema gap tracked since `TASK-0102`: `domain-model.md`'s own `ENT-MEMBERSHIP` Lifecycle (`Invited → Active ↔ Deactivated`) names a state `memberships.status`'s `ACTIVE`/`DEACTIVATED`-only enum cannot represent. **Resolution:** an invitation is its own pre-membership record, not a third `status` value — `api-specification.md §11.5`'s own contract already implies this (the accept endpoint's response is "the new `memberships` row," meaning the row doesn't exist before acceptance). No `ALTER TYPE`, no change to the existing enum. The two new `memberships` columns additionally resolve a second, smaller gap: `domain-model.md`'s own `ENT-MEMBERSHIP` attribute list already named `invitedAt?`/`acceptedAt?` as entity attributes, which this table had no columns for until now. A real registry gap also found and flagged (not yet filled here, left to `TASK-0120`'s own implementation): `§11.5`'s own text names a `410 Gone` ("expired invitation") response, but `api-specification.md §5.2`'s own canonical error-code registry table never lists it. |
+| 0.1.0 | 2026-10-04 | **RCR (`TASK-0122`, `implementation-task-backlog.md §6.3`): added §8.6 `disputes` (new table, 24th in this document) and a new `DISPUTED` value on §5.1 `matches.state`.** Resolves a gap `api-specification.md §11.4`'s own contract assumed resolved already: locking a match for dispute names a `matches.state` transition, but the enum had no value for it. **A real domain-model tension found and flagged, not silently resolved:** `domain-model.md`'s own `ENT-DISPUTE` lives entirely under the unbuilt `CTX-COMPETITION`/`AGG-COMPETITION` context — this RCR deliberately follows `§11.4`'s own match-scoped contract instead, since a match can be disputed with no competition/fixture involved at all; the competition-scoped half (`BR-015`'s standings exclusion) remains genuinely unbuilt. `disputes.locked_from_state` stores the match's own pre-lock `state` so adjudication can restore it exactly, rather than assuming a fixed "unlock" target state. |
 
