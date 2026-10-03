@@ -76,3 +76,12 @@ fun reconciliationBlockedError(detail: String, instance: String): ApiProblem = A
     detail = detail,
     instance = instance,
 )
+
+/** TASK-0120 (Android, mirroring backend TASK-0120): `410 Gone` for an expired invitation. */
+fun invitationExpiredError(detail: String, instance: String): ApiProblem = ApiProblem(
+    type = "$ERROR_BASE_URI/invitation/expired",
+    title = "Gone",
+    status = 410,
+    detail = detail,
+    instance = instance,
+)

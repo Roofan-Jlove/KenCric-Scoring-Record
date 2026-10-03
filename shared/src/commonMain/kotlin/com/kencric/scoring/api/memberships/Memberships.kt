@@ -44,6 +44,14 @@ data class MembershipRow(
     val organizationId: String,
     val roles: List<String>,
     val status: MembershipStatus,
+    /**
+     * `data-specification.md §3.3` -- added by RCR, `TASK-0119`, mirroring
+     * the TS side's own widening. Null for a membership created by any
+     * path other than `api.invitations`'s own `acceptInvitation`, which
+     * is every membership `createMembership` above itself still creates.
+     */
+    val invitedAt: String? = null,
+    val acceptedAt: String? = null,
     val rowVersion: Int,
     val createdAt: String,
     val createdBy: String,
