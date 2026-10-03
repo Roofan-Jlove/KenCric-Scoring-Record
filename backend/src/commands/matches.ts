@@ -41,6 +41,17 @@ export type MatchFormat = "T20" | "ODI" | "T10" | "THE_HUNDRED" | "CUSTOM" | "FI
 export type RainMethod = "DLS_STANDARD" | "NONE";
 
 /**
+ * `data-specification.md §5.1`. Widened from the single literal
+ * `"SCHEDULED"` to the full enum by `TASK-0122` (RCR adding `DISPUTED`)
+ * -- `createMatch` below always produces `"SCHEDULED"`, so this was
+ * never actually wrong, just narrower than the real column until a
+ * second module (`disputeMatch.ts`, `TASK-0123`) needed to assign it a
+ * different value. A backward-compatible type-only widening -- every
+ * existing call site already only ever produces/reads `"SCHEDULED"`.
+ */
+export type MatchState = "SCHEDULED" | "READY" | "IN_PROGRESS" | "INNINGS_BREAK" | "PAUSED" | "COMPLETE" | "ABANDONED" | "DISPUTED";
+
+/**
  * data-specification.md §5.1's field list, minus response-only/
  * server-computed fields (`claim_status`, `officials_summary`,
  * `toss_winner_team_id`/`toss_decision` -- set later via `CMD-RECORD-
@@ -89,7 +100,7 @@ export interface MatchRow {
   scheduledStart: string | null;
   matchTimezone: string;
   minOversForResult: number | null;
-  state: "SCHEDULED";
+  state: MatchState;
   result: null;
   rowVersion: number;
   createdAt: string;
