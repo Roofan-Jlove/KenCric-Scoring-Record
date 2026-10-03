@@ -218,3 +218,79 @@ describe("pushEvents (TASK-0143)", () => {
     expect(second.response.results[0].outcome).toBe("ACCEPTED");
   });
 });
+
+describe("pushEvents -- domain re-validation composition (TASK-0144)", () => {
+  const validDeliveryPayload = { legality: "LEGAL", strikerBatterId: "striker-1", nonStrikerBatterId: "non-striker-1", bowlerId: "bowler-1", isFreeHit: false };
+
+  it("accepts a DELIVERY_RECORDED event with a domain-valid payload", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: validDeliveryPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("ACCEPTED");
+  });
+
+  it("rejects a DELIVERY_RECORDED event that fails a V-rule (DEAD_BALL with runEvents, V11)", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const invalidPayload = { ...validDeliveryPayload, legality: "DEAD_BALL", runEvents: [{ origin: "OFF_BAT", value: 1, method: "RUN" }], deadBallReason: "x" };
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[0].errorCode).toBe("DOMAIN_VALIDATION_FAILED");
+    expect(result.response.results[0].errorDetail).toContain("V11");
+  });
+
+  it("rejects a DELIVERY_RECORDED event whose payload does not match the DeliveryInput shape", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: { nonsense: true } }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[0].errorCode).toBe("DOMAIN_VALIDATION_FAILED");
+  });
+
+  it("a domain-invalid event never reaches the store, so a later event in the same batch fails its own sequence check", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const eventStore = new InMemoryMatchEventStore();
+    const invalidPayload = { ...validDeliveryPayload, legality: "DEAD_BALL", runEvents: [{ origin: "OFF_BAT", value: 1, method: "RUN" }], deadBallReason: "x" };
+    const request = baseRequest({
+      events: [
+        { eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload },
+        { eventId: "event-1", streamId: "stream-1", deviceId: "device-1", deviceSeq: 1, prevHash: "hash-0", hash: "hash-1", payload: {} },
+      ],
+    });
+
+    const result = pushEvents(request, "user-1", eventStore, new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[1].outcome).toBe("REJECTED");
+    expect(result.response.results[1].errorCode).toBe("DEVICE_SEQ_GAP");
+    expect(result.response.confirmedThroughSeq).toBeNull();
+  });
+
+  it("non-DELIVERY_RECORDED events skip domain validation entirely and pass straight through", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "STRIKER_OVERRIDDEN", payload: { nonsense: true } }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("ACCEPTED");
+  });
+});

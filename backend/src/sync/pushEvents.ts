@@ -33,13 +33,35 @@
  * `match_officials` lookup) rather than reusing `authorize()` for a
  * check it was never built to answer.
  *
- * **Full domain re-validation (`DeliveryValidator.kt`'s own cricket-
- * rules logic) remains out of reach from this TypeScript module** --
- * the same honest gap `ingestPushBatch.ts`'s own doc comment already
- * flagged (no Kotlin↔TypeScript FFI exists anywhere in this backlog).
- * This module still only performs the structural checks (schema,
- * authz, fence, sequence, hash-chain); it does not independently
- * verify that a pushed delivery is cricket-rules-valid.
+ * **`TASK-0144` closes the "full domain re-validation" gap** -- via a
+ * deliberate TypeScript PORT of `DeliveryValidator.kt`
+ * (`backend/src/validation/deliveryValidator.ts`), not a true FFI (no
+ * Kotlin↔TypeScript bridge exists anywhere in this backlog; see that
+ * module's own doc comment for the full reasoning). For every
+ * `DELIVERY_RECORDED` event, this module runs the ported `V1`-`V11`
+ * checks BEFORE handing that single event to
+ * `ingestPushBatchWithFenceCheck` -- a domain-invalid event is
+ * rejected directly and never reaches the sequence/hash-chain/insert
+ * step, so it correctly never advances the stream's own confirmed
+ * state; a later event in the same batch that depended on it will
+ * then fail its own sequence check naturally, cascading exactly the
+ * way an out-of-order submission already would. Non-`DELIVERY_RECORDED`
+ * events (`NON_STRIKER_RUN_OUT`/`STRIKER_OVERRIDDEN`/
+ * `PLAYING_CONDITIONS_FROZEN`/`DELIVERY_VOIDED`) have no `V1`-`V11`
+ * validator of their own in `shared/` either -- they pass straight
+ * through to the structural checks unchanged, matching the Kotlin
+ * pipeline's own scope exactly (only `DeliveryRecorded` ever calls
+ * `validateDelivery`).
+ *
+ * **A real, additional scope boundary:** `validateDelivery`'s own
+ * `BattingContext` parameter needs live match state (current XI, who
+ * has already batted, who is out) that no layer in `backend/` has any
+ * visibility into -- the real fold lives in `shared/`'s own
+ * `InningsFolder.kt`, itself unported for the same toolchain reason.
+ * This module calls the validator with `EMPTY_BATTING_CONTEXT`, which
+ * means `V8` (`incomingBatterId` must be a valid NOT_OUT XI member)
+ * will reject ANY wicket naming a specific incoming batter -- an empty
+ * context can never satisfy it. Flagged here, not silently accepted.
  *
  * **Rate limiting (`429`, `SEC-010`) is NOT implemented** -- the same
  * `Should·P2`, correctly-out-of-MVP-scope finding `exportJobs.ts`
@@ -52,6 +74,7 @@ import type { MatchOfficialStore } from "../commands/matchOfficials.js";
 import { ingestPushBatchWithFenceCheck } from "./writerFence.js";
 import type { IncomingPushEvent, MatchEventStore, PushOutcome } from "./ingestPushBatch.js";
 import type { WriterFenceStore } from "./writerFence.js";
+import { EMPTY_BATTING_CONTEXT, validateDelivery, type DeliveryInput } from "../validation/deliveryValidator.js";
 
 /** `§12.1`'s own request field table. */
 export interface PushEventsRequest {
@@ -119,6 +142,26 @@ function computeConfirmedThroughSeq(events: readonly IncomingPushEvent[], outcom
   return confirmed;
 }
 
+const VALID_LEGALITY = ["LEGAL", "WIDE", "NO_BALL", "DEAD_BALL"];
+
+/**
+ * A minimal runtime shape check -- `payload` is `unknown` on the wire,
+ * same as `IncomingPushEvent.payload` always has been. Checks only
+ * the fields `validateDelivery` itself requires non-null; a malformed
+ * payload is reported the same way a failed `V1`-`V11` check is
+ * (`DOMAIN_VALIDATION_FAILED`), not as a separate schema error -- by
+ * the time an event reaches this per-event loop, the batch-level
+ * schema check has already passed.
+ */
+function asDeliveryInput(payload: unknown): DeliveryInput | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.legality !== "string" || !VALID_LEGALITY.includes(p.legality)) return null;
+  if (typeof p.strikerBatterId !== "string" || typeof p.nonStrikerBatterId !== "string" || typeof p.bowlerId !== "string") return null;
+  if (typeof p.isFreeHit !== "boolean") return null;
+  return p as unknown as DeliveryInput;
+}
+
 /** `POST /sync/events`. */
 export function pushEvents(
   request: PushEventsRequest,
@@ -152,7 +195,31 @@ export function pushEvents(
     return { outcome: "rejected", problem: authForbidden("You are not authorized to score this match.", instance) };
   }
 
-  const outcomes = ingestPushBatchWithFenceCheck(request.events, request.scorerStreamId, request.fenceValue, eventStore, fenceStore);
+  // Per-event, not one bulk call: a domain-invalid DELIVERY_RECORDED
+  // event must never reach ingestPushBatchWithFenceCheck's own insert
+  // step at all -- calling it one event at a time (each call still
+  // sees the full, correctly-updated store state from every prior
+  // iteration) lets a domain rejection short-circuit cleanly, with
+  // every later event's own sequence check cascading naturally against
+  // whatever the stream's last ACTUALLY-accepted event was.
+  const outcomes: PushOutcome[] = [];
+  for (const event of request.events) {
+    if (event.type === "DELIVERY_RECORDED") {
+      const deliveryInput = asDeliveryInput(event.payload);
+      if (!deliveryInput) {
+        outcomes.push({ eventId: event.eventId, status: "REJECTED", reasonCode: "DOMAIN_VALIDATION_FAILED", detail: "payload does not match the DeliveryInput shape" });
+        continue;
+      }
+      const domainResult = validateDelivery(deliveryInput, EMPTY_BATTING_CONTEXT);
+      if (domainResult.outcome === "invalid") {
+        const detail = domainResult.failures.map((f) => `${f.rule}: ${f.message}`).join("; ");
+        outcomes.push({ eventId: event.eventId, status: "REJECTED", reasonCode: "DOMAIN_VALIDATION_FAILED", detail });
+        continue;
+      }
+    }
+    const [outcome] = ingestPushBatchWithFenceCheck([event], request.scorerStreamId, request.fenceValue, eventStore, fenceStore);
+    outcomes.push(outcome);
+  }
 
   const results: PushEventResultItem[] = outcomes.map((outcome, i) =>
     outcome.status === "ACCEPTED"

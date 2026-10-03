@@ -22,6 +22,15 @@
  * at all -- this module picks 0 as that convention (the first event
  * for a stream must declare device_seq = 0), resolving that open
  * question rather than leaving it unresolved on this side too.
+ *
+ * `TASK-0144` closes the "full domain re-validation" half of the gap
+ * named above, via a deliberate TypeScript PORT of
+ * `DeliveryValidator.kt` (`backend/src/validation/deliveryValidator.ts`)
+ * rather than a true FFI -- `pushEvents.ts` (`TASK-0143`) is the
+ * command handler that composes it with this module's own sequence/
+ * hash-chain checks. `IncomingPushEvent` gains optional `type`/
+ * `eventVersion` fields (`api-specification.md §12.1`'s own wire
+ * shape) so that composition can tell which events need it.
  */
 
 export interface IncomingPushEvent {
@@ -32,6 +41,16 @@ export interface IncomingPushEvent {
   prevHash: string;
   hash: string;
   payload: unknown;
+  /**
+   * `api-specification.md §12.1`'s own wire shape names `type`/
+   * `eventVersion` on every pushed event -- added by `TASK-0144`,
+   * optional so every pre-existing construction site in this module's
+   * own tests keeps compiling unchanged. `pushEvents.ts` (`TASK-0143`/
+   * `0144`) is the first consumer that actually reads `type`, to
+   * decide whether a given event needs domain re-validation.
+   */
+  type?: string;
+  eventVersion?: number;
 }
 
 export type PushOutcome =
