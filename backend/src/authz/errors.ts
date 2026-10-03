@@ -109,6 +109,25 @@ export function reconciliationBlockedError(detail: string, instance: string): Pr
 }
 
 /**
+ * TASK-0120: `api-specification.md §11.5`'s own named status, `410
+ * Gone` for an expired invitation -- explicitly distinguished from
+ * `404` ("the two cases warrant different user-facing copy"), but
+ * absent from `§5.2`'s own canonical registry table entirely, the
+ * same "registry had no constructor yet" gap `TASK-0100`'s
+ * `invalidTransitionError` and `TASK-0105`'s `reconciliationBlockedError`
+ * each already found and filled once.
+ */
+export function invitationExpiredError(detail: string, instance: string): ProblemDetails {
+  return {
+    type: `${ERROR_BASE_URI}/invitation/expired`,
+    title: "Gone",
+    status: 410,
+    detail,
+    instance,
+  };
+}
+
+/**
  * TASK-0044: api-specification.md §5.2's `not-found` (404) --
  * "Resource doesn't exist, or exists but RLS makes it invisible to this
  * caller -- the response is identical in both cases, deliberately, to

@@ -77,6 +77,19 @@ export interface MembershipRow {
   organizationId: string;
   roles: string[];
   status: MembershipStatus;
+  /**
+   * `data-specification.md §3.3` -- added by RCR, `TASK-0119`, resolving
+   * `domain-model.md`'s own `ENT-MEMBERSHIP` attribute-list gap
+   * (`invitedAt?`/`acceptedAt?`). Optional here (rather than required)
+   * so every pre-existing `MembershipRow` literal in this module's own
+   * tests and in `deactivateMember.ts`/`claimMatch.ts`'s own fixtures
+   * keeps compiling unchanged -- null/absent for a membership created
+   * by any path other than `invitations.ts`'s own `acceptInvitation`
+   * (`TASK-0120`), which is every membership this module's own
+   * `createMembership` itself still creates.
+   */
+  invitedAt?: string | null;
+  acceptedAt?: string | null;
   rowVersion: number;
   createdAt: string;
   createdBy: string;
