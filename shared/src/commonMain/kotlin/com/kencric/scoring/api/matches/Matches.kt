@@ -15,11 +15,23 @@ package com.kencric.scoring.api.matches
  * ported (needed for `claimMatch`'s own test assertions that
  * provenance fields stay untouched), plus a minimal `MatchStore`
  * exposing just the two operations `claimMatch` actually uses.
+ *
+ * **`TASK-0128` adds `MatchState`/`MatchRow.state`**, mirroring the TS
+ * side's own `TASK-0122` RCR, to support `disputeMatch.ts`'s own
+ * Kotlin port -- additive, defaults to `SCHEDULED`.
  */
 
 enum class MatchFormat { T20, ODI, T10, THE_HUNDRED, CUSTOM, FIRST_CLASS }
 enum class RainMethod { DLS_STANDARD, NONE }
 enum class MatchClaimStatus { GUEST, CLAIMED }
+
+/**
+ * `data-specification.md §5.1`. Added by `TASK-0128`, mirroring the TS
+ * side's own `TASK-0122` RCR (`DISPUTED`) -- this minimal module never
+ * carried `state` at all before now, since `claimMatch` never needed
+ * it; `disputeMatch`'s own Kotlin port is the first consumer.
+ */
+enum class MatchState { SCHEDULED, READY, IN_PROGRESS, INNINGS_BREAK, PAUSED, COMPLETE, ABANDONED, DISPUTED }
 
 data class MatchRow(
     val id: String,
@@ -42,6 +54,8 @@ data class MatchRow(
     val scheduledStart: String? = null,
     val matchTimezone: String,
     val minOversForResult: Int? = null,
+    /** Defaults to `SCHEDULED` -- additive, keeps every pre-existing `MatchRow(...)` construction (e.g. `ClaimMatchTest.kt`) compiling unchanged. */
+    val state: MatchState = MatchState.SCHEDULED,
     val rowVersion: Int,
     val createdAt: String,
     val createdBy: String,
