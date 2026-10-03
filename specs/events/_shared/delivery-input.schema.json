@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/_shared/delivery-input.schema.json",
+  "title": "DeliveryInput",
+  "description": "TASK-0142 (ITQ-2). Transcribes shared/.../core/model/DeliveryInput.kt, WicketDetail.kt, and RunEvent.kt field-for-field -- the shape live-scoring.md §16.2 says 'the payload IS the validated DeliveryInput verbatim.' Reused by delivery-recorded/v1 directly, and by non-striker-run-out/v1 for its own `wicket` field.",
+  "$defs": {
+    "RunEvent": {
+      "type": "object",
+      "properties": {
+        "origin": { "enum": ["OFF_BAT", "BYE", "LEG_BYE", "WIDE", "NO_BALL_PENALTY", "NO_BALL_BAT", "NO_BALL_BYE", "NO_BALL_LEG_BYE", "PENALTY"] },
+        "value": { "type": "integer", "minimum": 0 },
+        "method": { "enum": ["RUN", "BOUNDARY", "OVERTHROW", "AUTOMATIC"] },
+        "awardedToTeamId": { "type": ["string", "null"], "format": "uuid", "description": "Only meaningful when origin == PENALTY; null otherwise." }
+      },
+      "required": ["origin", "value", "method"],
+      "additionalProperties": false
+    },
+    "WicketDetail": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["BOWLED", "CAUGHT", "LBW", "RUN_OUT", "STUMPED", "HIT_WICKET", "OBSTRUCTING_THE_FIELD", "HIT_BALL_TWICE", "TIMED_OUT", "RETIRED_OUT"] },
+        "outBatterId": { "type": "string", "format": "uuid" },
+        "endVacated": { "enum": ["STRIKER", "NON_STRIKER"] },
+        "fielderIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "default": [] },
+        "crossedBeforeDismissal": { "type": ["boolean", "null"], "description": "Required (non-null) only for RUN_OUT, per live-scoring.md §9.2 -- not a JSON Schema-level conditional here, same 'V-rule enforcement, not the type system' deliberate choice the Kotlin type itself makes." },
+        "incomingBatterId": { "type": ["string", "null"], "format": "uuid", "description": "Null only when the innings ends on this wicket." }
+      },
+      "required": ["mode", "outBatterId", "endVacated"],
+      "additionalProperties": false
+    },
+    "DeliveryInput": {
+      "type": "object",
+      "properties": {
+        "legality": { "enum": ["LEGAL", "WIDE", "NO_BALL", "DEAD_BALL"] },
+        "strikerBatterId": { "type": "string", "format": "uuid" },
+        "nonStrikerBatterId": { "type": "string", "format": "uuid" },
+        "bowlerId": { "type": "string", "format": "uuid" },
+        "isFreeHit": { "type": "boolean" },
+        "runEvents": { "type": "array", "items": { "$ref": "#/$defs/RunEvent" }, "default": [] },
+        "shortRuns": { "type": "integer", "minimum": 0, "default": 0 },
+        "wicket": { "oneOf": [{ "$ref": "#/$defs/WicketDetail" }, { "type": "null" }] },
+        "deadBallReason": { "type": ["string", "null"], "description": "Required (non-blank) iff legality == DEAD_BALL." },
+        "commentary": { "type": ["string", "null"] },
+        "overrideReason": { "type": ["string", "null"], "description": "Required (non-blank) iff a guardrail override is in effect." }
+      },
+      "required": ["legality", "strikerBatterId", "nonStrikerBatterId", "bowlerId", "isFreeHit"],
+      "additionalProperties": false
+    }
+  }
+}

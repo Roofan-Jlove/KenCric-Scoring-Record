@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/delivery-voided/v1.schema.json",
+  "title": "EVT-DELIVERY-VOIDED",
+  "description": "TASK-0142 (ITQ-2). live-scoring.md §18.1 step 2 (TASK-0029, Undo) -- §16 itself only mentions this event's existence in passing, with no dedicated field table the way §16.2-16.5 each got one. Modeled minimally per what §18.1's text actually specifies: a reference to the voided event's eventId, nothing more. Transcribes MatchEvent.kt's DeliveryVoided field-for-field.",
+  "allOf": [
+    { "$ref": "../_shared/envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "DELIVERY_VOIDED" },
+        "event": {
+          "type": "object",
+          "properties": {
+            "voidedEventId": { "type": "string", "format": "uuid", "description": "Refers to an AuditedEvent.eventId, not a MatchEvent itself -- the envelope, not the payload, carries identity." }
+          },
+          "required": ["voidedEventId"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["eventType", "event"]
+    }
+  ]
+}

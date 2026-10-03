@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/delivery-recorded/v1.schema.json",
+  "title": "EVT-DELIVERY-RECORDED",
+  "description": "TASK-0142 (ITQ-2). live-scoring.md §16.2. Transcribes shared/.../core/model/MatchEvent.kt's DeliveryRecorded -- 'the payload IS the validated DeliveryInput verbatim.' The envelope half is _shared/envelope.schema.json; this file adds only the `event` field.",
+  "allOf": [
+    { "$ref": "../_shared/envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "DELIVERY_RECORDED" },
+        "event": { "$ref": "../_shared/delivery-input.schema.json#/$defs/DeliveryInput" }
+      },
+      "required": ["eventType", "event"]
+    }
+  ]
+}

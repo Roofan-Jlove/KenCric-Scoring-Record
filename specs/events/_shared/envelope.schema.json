@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/_shared/envelope.schema.json",
+  "title": "EventEnvelope",
+  "description": "TASK-0142, resolving implementation-task-backlog.md §8's own ITQ-2. Transcribes shared/src/commonMain/kotlin/com/kencric/scoring/core/model/AuditedEvent.kt field-for-field, minus `event` itself (that field's shape is each per-event schema's own `allOf` partner, per live-scoring.md §17: 'every event in §16 IS its own audit record -- there is no separate audit-log write'). Mirrors match_events' own columns (TASK-0006/0007) so the JSON Schema, the persisted shape, and the Kotlin shape all agree field-for-field -- nothing invented here, only transcribed.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "system-architecture.md §4.8: additive-only evolution. v1 here; a v2.schema.json sibling file is added, never a breaking edit to v1."
+    },
+    "eventId": { "type": "string", "format": "uuid" },
+    "matchId": { "type": "string", "format": "uuid" },
+    "inningsId": { "type": "string", "format": "uuid" },
+    "scorerStreamId": { "type": "string" },
+    "deviceId": { "type": "string", "format": "uuid" },
+    "deviceSeq": { "type": "integer", "minimum": 0 },
+    "hlc": { "type": "string" },
+    "eventOrdinal": { "type": "string" },
+    "actorRef": { "type": "string", "format": "uuid" },
+    "provenance": {
+      "type": "object",
+      "description": "live-scoring.md §16.2/§17.2 -- captured at write time, never reconstructed later, which is why every field here is required.",
+      "properties": {
+        "appVersion": { "type": "string" },
+        "platform": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "osVersion": { "type": "string" },
+        "buildHash": { "type": "string" }
+      },
+      "required": ["appVersion", "platform", "deviceModel", "osVersion", "buildHash"],
+      "additionalProperties": false
+    },
+    "recordedAt": { "type": "integer", "description": "Epoch millis, device clock." },
+    "serverReceivedAt": { "type": ["integer", "null"], "description": "Epoch millis; null until the server has ingested this event." },
+    "prevHash": {
+      "type": "string",
+      "description": "HONEST GAP, carried over from AuditedEvent.kt's own doc comment: no canonical serialisation format for a MatchEvent has been chosen anywhere in this backlog, so this field's own producing algorithm is not specified here either -- the shape is fixed, the computation is not."
+    },
+    "hash": { "type": "string" },
+    "supersedes": { "type": ["string", "null"], "format": "uuid", "description": "Set iff this event is a correction superseding an earlier one (§14)." }
+  },
+  "required": [
+    "schema_version", "eventId", "matchId", "inningsId", "scorerStreamId",
+    "deviceId", "deviceSeq", "hlc", "eventOrdinal", "actorRef", "provenance",
+    "recordedAt", "prevHash", "hash"
+  ]
+}

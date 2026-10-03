@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/non-striker-run-out/v1.schema.json",
+  "title": "EVT-NON-STRIKER-RUN-OUT",
+  "description": "TASK-0142 (ITQ-2). live-scoring.md §16.3 -- emitted INSTEAD OF delivery-recorded for the pre-delivery mankad case (§9.6), never alongside it. Transcribes MatchEvent.kt's NonStrikerRunOut field-for-field: 'mirrors §16.2 minus legality/runEvents/isFreeHit... plus wicket... and incomingBatterId.'",
+  "allOf": [
+    { "$ref": "../_shared/envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "NON_STRIKER_RUN_OUT" },
+        "event": {
+          "type": "object",
+          "properties": {
+            "strikerBatterId": { "type": "string", "format": "uuid" },
+            "nonStrikerBatterId": { "type": "string", "format": "uuid" },
+            "bowlerId": { "type": "string", "format": "uuid" },
+            "wicket": {
+              "allOf": [{ "$ref": "../_shared/delivery-input.schema.json#/$defs/WicketDetail" }],
+              "description": "Always RUN_OUT, endVacated = NON_STRIKER per §16.3."
+            },
+            "incomingBatterId": { "type": ["string", "null"], "format": "uuid" },
+            "shortRuns": { "type": "integer", "minimum": 0, "default": 0 },
+            "deadBallReason": { "type": ["string", "null"] },
+            "commentary": { "type": ["string", "null"] },
+            "overrideReason": { "type": ["string", "null"] }
+          },
+          "required": ["strikerBatterId", "nonStrikerBatterId", "bowlerId", "wicket", "incomingBatterId"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["eventType", "event"]
+    }
+  ]
+}

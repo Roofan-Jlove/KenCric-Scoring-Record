@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/striker-overridden/v1.schema.json",
+  "title": "EVT-STRIKER-OVERRIDDEN",
+  "description": "TASK-0142 (ITQ-2). live-scoring.md §16.4 -- independent of any delivery event (§14.5's manual override, UX-14). Transcribes MatchEvent.kt's StrikerOverridden field-for-field.",
+  "allOf": [
+    { "$ref": "../_shared/envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "STRIKER_OVERRIDDEN" },
+        "event": {
+          "type": "object",
+          "properties": {
+            "newStrikerBatterId": { "type": "string", "format": "uuid" },
+            "newNonStrikerBatterId": { "type": "string", "format": "uuid" },
+            "reason": { "type": "string" }
+          },
+          "required": ["newStrikerBatterId", "newNonStrikerBatterId", "reason"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["eventType", "event"]
+    }
+  ]
+}

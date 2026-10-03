@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kencric.example/schemas/events/playing-conditions-frozen/v1.schema.json",
+  "title": "EVT-PLAYING-CONDITIONS-FROZEN",
+  "description": "TASK-0142 (ITQ-2). live-scoring.md §16.5 -- emitted once, alongside the match's very first delivery-recorded, never again (MBR-05). Transcribes MatchEvent.kt's PlayingConditionsFrozen field-for-field. `conditionsProfileSnapshot` is a serialized string, not a fully-typed shape -- mirrors that same already-flagged, already-open gap (MatchEvent.kt's own doc comment: 'the full typed shape remains unmodeled, same gap TASK-0016's ReferenceDataPort already flagged'), not re-closed here.",
+  "allOf": [
+    { "$ref": "../_shared/envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "PLAYING_CONDITIONS_FROZEN" },
+        "event": {
+          "type": "object",
+          "properties": {
+            "conditionsProfileSnapshot": { "type": "string" }
+          },
+          "required": ["conditionsProfileSnapshot"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["eventType", "event"]
+    }
+  ]
+}
