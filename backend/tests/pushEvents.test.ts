@@ -1,10 +1,46 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryOfficialStore, type OfficialRow } from "../src/commands/officials.js";
 import { InMemoryMatchOfficialStore, type MatchOfficialRow } from "../src/commands/matchOfficials.js";
+import { InMemoryMatchStore, type MatchRow } from "../src/commands/matches.js";
 import { InMemoryMatchEventStore } from "../src/sync/ingestPushBatch.js";
 import { InMemoryWriterFenceStore } from "../src/sync/writerFence.js";
 import { InMemoryFeatureFlagStore, setFeatureFlag } from "../src/commands/featureFlags.js";
+import { InMemoryBattingStateStore } from "../src/validation/battingContext.js";
 import { DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY, MAX_BATCH_SIZE, pushEvents, type PushEventsRequest } from "../src/sync/pushEvents.js";
+
+function seedMatchForBatting(store: InMemoryMatchStore): MatchRow {
+  const row: MatchRow = {
+    id: "match-1",
+    organizationId: "org-1",
+    originDeviceId: "device-1",
+    claimStatus: "CLAIMED",
+    homeTeamId: "team-A",
+    awayTeamId: "team-B",
+    homeXi: ["striker-1", "non-striker-1", "incoming-1", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11"],
+    awayXi: null,
+    format: "T20",
+    oversAllotted: 20,
+    conditionsProfile: null,
+    conditionsProfileVersion: null,
+    dlsTableVersion: null,
+    rainMethod: "NONE",
+    tossWinnerTeamId: null,
+    tossDecision: null,
+    venue: null,
+    scheduledStart: null,
+    matchTimezone: "Asia/Karachi",
+    minOversForResult: null,
+    state: "IN_PROGRESS",
+    result: null,
+    rowVersion: 1,
+    createdAt: "2026-10-01T00:00:00Z",
+    createdBy: "user-1",
+    updatedAt: "2026-10-01T00:00:00Z",
+    updatedBy: "user-1",
+  };
+  store.insert(row);
+  return row;
+}
 
 function seedOfficial(store: InMemoryOfficialStore, id: string, userId: string | null): OfficialRow {
   const row: OfficialRow = {
@@ -352,5 +388,118 @@ describe("pushEvents -- feature-flag bypass of domain re-validation (TASK-0145)"
     expect(result.outcome).toBe("ok");
     if (result.outcome !== "ok") throw new Error("unreachable");
     expect(result.response.results[0].outcome).toBe("REJECTED");
+  });
+});
+
+describe("pushEvents -- real BattingContext for V8 (TASK-0147)", () => {
+  const wicketPayload = (incomingBatterId: string | null) => ({
+    legality: "LEGAL",
+    strikerBatterId: "striker-1",
+    nonStrikerBatterId: "non-striker-1",
+    bowlerId: "bowler-1",
+    isFreeHit: false,
+    wicket: { mode: "BOWLED", outBatterId: "striker-1", endVacated: "STRIKER", incomingBatterId },
+  });
+
+  it("with no battingContextDeps passed, a wicket naming an incoming batter is rejected (today's TASK-0144 behavior, unchanged)", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: wicketPayload("incoming-1") }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[0].errorDetail).toContain("V8");
+  });
+
+  it("with battingContextDeps passed and the innings seeded, a valid incoming batter is accepted", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const matchStore = new InMemoryMatchStore();
+    seedMatchForBatting(matchStore);
+    const battingStateStore = new InMemoryBattingStateStore();
+    battingStateStore.seed("match-1", "team-A");
+
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: wicketPayload("incoming-1") }],
+    });
+
+    const result = pushEvents(
+      request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1",
+      undefined, { matchStore, store: battingStateStore },
+    );
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("ACCEPTED");
+  });
+
+  it("an incoming batter already dismissed earlier in the innings is rejected by V8", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const matchStore = new InMemoryMatchStore();
+    seedMatchForBatting(matchStore);
+    const battingStateStore = new InMemoryBattingStateStore();
+    battingStateStore.seed("match-1", "team-A");
+    battingStateStore.recordDismissal("match-1", "incoming-1");
+
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: wicketPayload("incoming-1") }],
+    });
+
+    const result = pushEvents(
+      request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1",
+      undefined, { matchStore, store: battingStateStore },
+    );
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[0].errorDetail).toContain("V8");
+  });
+
+  it("an accepted wicket folds outBatterId into the dismissed set, rejecting it as a LATER incoming batter in the same batch", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const matchStore = new InMemoryMatchStore();
+    seedMatchForBatting(matchStore);
+    const battingStateStore = new InMemoryBattingStateStore();
+    battingStateStore.seed("match-1", "team-A");
+
+    const request = baseRequest({
+      events: [
+        { eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: wicketPayload("incoming-1") },
+        {
+          eventId: "event-1", streamId: "stream-1", deviceId: "device-1", deviceSeq: 1, prevHash: "hash-0", hash: "hash-1", type: "DELIVERY_RECORDED",
+          payload: {
+            legality: "LEGAL", strikerBatterId: "incoming-1", nonStrikerBatterId: "non-striker-1", bowlerId: "bowler-1", isFreeHit: false,
+            wicket: { mode: "BOWLED", outBatterId: "non-striker-1", endVacated: "NON_STRIKER", incomingBatterId: "striker-1" },
+          },
+        },
+      ],
+    });
+
+    const result = pushEvents(
+      request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1",
+      undefined, { matchStore, store: battingStateStore },
+    );
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("ACCEPTED");
+    expect(result.response.results[1].outcome).toBe("REJECTED");
+    expect(result.response.results[1].errorDetail).toContain("V8");
+  });
+
+  it("a REJECTED wicket (e.g. domain-invalid) does not fold its outBatterId into the dismissed set", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const matchStore = new InMemoryMatchStore();
+    seedMatchForBatting(matchStore);
+    const battingStateStore = new InMemoryBattingStateStore();
+    battingStateStore.seed("match-1", "team-A");
+
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: wicketPayload("not-in-xi") }],
+    });
+
+    pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1", undefined, { matchStore, store: battingStateStore });
+
+    expect(battingStateStore.get("match-1")?.dismissedPlayerIds.has("striker-1")).toBe(false);
   });
 });

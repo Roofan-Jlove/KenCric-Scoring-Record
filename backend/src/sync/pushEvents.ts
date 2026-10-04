@@ -92,16 +92,39 @@
  * `featureFlags`/`onToggleFeatureFlag` props remain unwired -- this is
  * one concrete backend gate, not the UI-facing console TASK-0132 also
  * flagged as outstanding.
+ *
+ * **`TASK-0147` gives `V8` a real (deliberately minimal) `BattingContext`**
+ * -- see `backend/src/validation/battingContext.ts`'s own doc comment
+ * for the full reasoning (NOT a port of `shared/`'s own 185-line
+ * `InningsFolder.kt`; derives only the three set-membership facts `V8`
+ * checks). A new optional `battingContextDeps` parameter; when omitted,
+ * every `DELIVERY_RECORDED` event still validates against
+ * `EMPTY_BATTING_CONTEXT`, `TASK-0144`'s own exact prior behavior.
+ * When supplied and the match's active innings has been externally
+ * `seed`ed, a real context is derived per-delivery from that delivery's
+ * own `strikerBatterId`/`nonStrikerBatterId` plus the accumulated
+ * dismissed-player set; on a wicket that is actually `ACCEPTED` (not
+ * merely domain-valid -- it must also clear the sequence/hash-chain/
+ * fence check), `outBatterId` is folded into that set for every
+ * subsequent delivery in the innings.
  */
 
 import { authForbidden, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
 import type { OfficialStore } from "../commands/officials.js";
 import type { MatchOfficialStore } from "../commands/matchOfficials.js";
+import type { MatchStore } from "../commands/matches.js";
 import { getFeatureFlag, type FeatureFlagStore } from "../commands/featureFlags.js";
 import { ingestPushBatchWithFenceCheck } from "./writerFence.js";
 import type { IncomingPushEvent, MatchEventStore, PushOutcome } from "./ingestPushBatch.js";
 import type { WriterFenceStore } from "./writerFence.js";
 import { EMPTY_BATTING_CONTEXT, validateDelivery, type DeliveryInput } from "../validation/deliveryValidator.js";
+import { deriveBattingContext, type BattingStateStore } from "../validation/battingContext.js";
+
+/** Pairs a `MatchStore` (to resolve the batting side's XI) with the `BattingStateStore` (the accumulated dismissed-player set) -- the two are never meaningful apart. */
+export interface BattingContextDeps {
+  matchStore: MatchStore;
+  store: BattingStateStore;
+}
 
 /**
  * `TASK-0145`: when this flag is explicitly set `enabled: true`, every
@@ -209,6 +232,7 @@ export function pushEvents(
   matchOfficialStore: MatchOfficialStore,
   instance: string,
   featureFlagStore?: FeatureFlagStore,
+  battingContextDeps?: BattingContextDeps,
 ): PushEventsResult {
   if (!request.matchId) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: matchId", instance) };
@@ -246,13 +270,17 @@ export function pushEvents(
   // whatever the stream's last ACTUALLY-accepted event was.
   const outcomes: PushOutcome[] = [];
   for (const event of request.events) {
+    let deliveryInput: DeliveryInput | null = null;
     if (event.type === "DELIVERY_RECORDED" && !domainValidationBypassed) {
-      const deliveryInput = asDeliveryInput(event.payload);
+      deliveryInput = asDeliveryInput(event.payload);
       if (!deliveryInput) {
         outcomes.push({ eventId: event.eventId, status: "REJECTED", reasonCode: "DOMAIN_VALIDATION_FAILED", detail: "payload does not match the DeliveryInput shape" });
         continue;
       }
-      const domainResult = validateDelivery(deliveryInput, EMPTY_BATTING_CONTEXT);
+      const battingContext = battingContextDeps
+        ? deriveBattingContext(request.matchId, deliveryInput.strikerBatterId, deliveryInput.nonStrikerBatterId, battingContextDeps.matchStore, battingContextDeps.store)
+        : EMPTY_BATTING_CONTEXT;
+      const domainResult = validateDelivery(deliveryInput, battingContext);
       if (domainResult.outcome === "invalid") {
         const detail = domainResult.failures.map((f) => `${f.rule}: ${f.message}`).join("; ");
         outcomes.push({ eventId: event.eventId, status: "REJECTED", reasonCode: "DOMAIN_VALIDATION_FAILED", detail });
@@ -261,6 +289,10 @@ export function pushEvents(
     }
     const [outcome] = ingestPushBatchWithFenceCheck([event], request.scorerStreamId, request.fenceValue, eventStore, fenceStore);
     outcomes.push(outcome);
+
+    if (outcome.status === "ACCEPTED" && deliveryInput?.wicket && battingContextDeps) {
+      battingContextDeps.store.recordDismissal(request.matchId, deliveryInput.wicket.outBatterId);
+    }
   }
 
   const results: PushEventResultItem[] = outcomes.map((outcome, i) =>
