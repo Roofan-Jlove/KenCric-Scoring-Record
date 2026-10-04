@@ -5,12 +5,13 @@
  * built (`AdministrationScreen.tsx`'s own `FEATURE_FLAGS` section,
  * `TASK-0091`) but no backend persistence wired.
  *
- * **This module is the storage layer only.** It does NOT wire actual
- * flag-gating logic into any other endpoint -- each future gated
- * feature checks its own flag, not built here -- and does NOT connect
- * to `AdministrationScreen.tsx`'s own existing `featureFlags`/
- * `onToggleFeatureFlag` props; that wiring is future work, not
- * invented here.
+ * **This module is the storage layer.** `TASK-0145` wired the first
+ * real gate -- `pushEvents.ts`'s own `DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY`
+ * -- directly against this store's `getFeatureFlag`; every other
+ * future gated feature still checks its own flag the same way, not
+ * built here. `AdministrationScreen.tsx`'s own existing `featureFlags`/
+ * `onToggleFeatureFlag` props remain unconnected -- that UI wiring is
+ * still future work, not invented here.
  *
  * `key` is plain text, validated only for presence -- no canonical
  * flag-key list exists anywhere in this corpus, the same "nothing

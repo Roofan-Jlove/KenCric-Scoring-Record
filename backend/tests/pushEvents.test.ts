@@ -3,7 +3,8 @@ import { InMemoryOfficialStore, type OfficialRow } from "../src/commands/officia
 import { InMemoryMatchOfficialStore, type MatchOfficialRow } from "../src/commands/matchOfficials.js";
 import { InMemoryMatchEventStore } from "../src/sync/ingestPushBatch.js";
 import { InMemoryWriterFenceStore } from "../src/sync/writerFence.js";
-import { MAX_BATCH_SIZE, pushEvents, type PushEventsRequest } from "../src/sync/pushEvents.js";
+import { InMemoryFeatureFlagStore, setFeatureFlag } from "../src/commands/featureFlags.js";
+import { DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY, MAX_BATCH_SIZE, pushEvents, type PushEventsRequest } from "../src/sync/pushEvents.js";
 
 function seedOfficial(store: InMemoryOfficialStore, id: string, userId: string | null): OfficialRow {
   const row: OfficialRow = {
@@ -292,5 +293,64 @@ describe("pushEvents -- domain re-validation composition (TASK-0144)", () => {
     expect(result.outcome).toBe("ok");
     if (result.outcome !== "ok") throw new Error("unreachable");
     expect(result.response.results[0].outcome).toBe("ACCEPTED");
+  });
+});
+
+describe("pushEvents -- feature-flag bypass of domain re-validation (TASK-0145)", () => {
+  const validDeliveryPayload = { legality: "LEGAL", strikerBatterId: "striker-1", nonStrikerBatterId: "non-striker-1", bowlerId: "bowler-1", isFreeHit: false };
+  const invalidPayload = { ...validDeliveryPayload, legality: "DEAD_BALL", runEvents: [{ origin: "OFF_BAT", value: 1, method: "RUN" }], deadBallReason: "x" };
+
+  it("with no featureFlagStore passed at all, validation still runs (today's behavior, unchanged)", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1");
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+    expect(result.response.results[0].errorCode).toBe("DOMAIN_VALIDATION_FAILED");
+  });
+
+  it("a featureFlagStore with the bypass flag never set still validates (unset defaults to disabled)", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const flagStore = new InMemoryFeatureFlagStore();
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1", flagStore);
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
+  });
+
+  it("the bypass flag explicitly set true skips domain validation -- the invalid payload is accepted", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const flagStore = new InMemoryFeatureFlagStore();
+    setFeatureFlag(DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY, true, "admin-1", flagStore, "2026-10-05T00:00:00Z", "req-admin");
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1", flagStore);
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("ACCEPTED");
+  });
+
+  it("the bypass flag explicitly set false validates normally", () => {
+    const { officialStore, matchOfficialStore } = setUpAuthorizedScorer();
+    const flagStore = new InMemoryFeatureFlagStore();
+    setFeatureFlag(DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY, false, "admin-1", flagStore, "2026-10-05T00:00:00Z", "req-admin");
+    const request = baseRequest({
+      events: [{ eventId: "event-0", streamId: "stream-1", deviceId: "device-1", deviceSeq: 0, prevHash: "", hash: "hash-0", type: "DELIVERY_RECORDED", payload: invalidPayload }],
+    });
+
+    const result = pushEvents(request, "user-1", new InMemoryMatchEventStore(), new InMemoryWriterFenceStore(), officialStore, matchOfficialStore, "req-1", flagStore);
+    expect(result.outcome).toBe("ok");
+    if (result.outcome !== "ok") throw new Error("unreachable");
+    expect(result.response.results[0].outcome).toBe("REJECTED");
   });
 });

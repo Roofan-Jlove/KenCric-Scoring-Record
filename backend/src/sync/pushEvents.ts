@@ -66,15 +66,52 @@
  * **Rate limiting (`429`, `SEC-010`) is NOT implemented** -- the same
  * `Should·P2`, correctly-out-of-MVP-scope finding `exportJobs.ts`
  * (`TASK-0103`) already made for the identical citation.
+ *
+ * **`TASK-0145` wires in the first real `feature_flags` gate** --
+ * `featureFlags.ts` (`TASK-0132`) was storage-only until now, with its
+ * own doc comment explicitly flagging "does NOT wire actual
+ * flag-gating logic into any other endpoint" as future work. `FR-160`'s
+ * own acceptance line is the justification: "Given a bad release, when
+ * a feature flag is turned off, then the affected feature is disabled
+ * without a client update" -- and this module's own domain
+ * re-validation (`TASK-0144`) is an already-documented, concrete "bad
+ * release" candidate: a hand-ported, never-compiled TypeScript
+ * duplicate of `DeliveryValidator.kt`'s rules, flagged at the time as a
+ * real drift risk. `DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY` names a
+ * *bypass* flag, not the feature itself, deliberately -- `getFeatureFlag`
+ * already has a fixed, universal convention ("never explicitly set
+ * defaults to disabled") that every other flag in this codebase relies
+ * on; naming it as the feature would invert that default the moment any
+ * caller passed a store, silently turning validation off platform-wide.
+ * Naming it as the bypass keeps "unset == disabled" meaning "bypass is
+ * disabled, validation runs normally" -- today's exact behavior,
+ * preserved by construction, not by a special-cased default. The flag
+ * check runs once per request, not per-event, matching how every other
+ * per-request value here (`fenceValue`, authz) is resolved once at the
+ * top, not re-read mid-batch. `AdministrationScreen.tsx`'s own
+ * `featureFlags`/`onToggleFeatureFlag` props remain unwired -- this is
+ * one concrete backend gate, not the UI-facing console TASK-0132 also
+ * flagged as outstanding.
  */
 
 import { authForbidden, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
 import type { OfficialStore } from "../commands/officials.js";
 import type { MatchOfficialStore } from "../commands/matchOfficials.js";
+import { getFeatureFlag, type FeatureFlagStore } from "../commands/featureFlags.js";
 import { ingestPushBatchWithFenceCheck } from "./writerFence.js";
 import type { IncomingPushEvent, MatchEventStore, PushOutcome } from "./ingestPushBatch.js";
 import type { WriterFenceStore } from "./writerFence.js";
 import { EMPTY_BATTING_CONTEXT, validateDelivery, type DeliveryInput } from "../validation/deliveryValidator.js";
+
+/**
+ * `TASK-0145`: when this flag is explicitly set `enabled: true`, every
+ * `DELIVERY_RECORDED` event in a batch skips `validateDelivery`
+ * entirely and goes straight to `ingestPushBatchWithFenceCheck`, the
+ * same path non-`DELIVERY_RECORDED` events already take. Unset (the
+ * default) or explicitly `false` means validation runs -- unchanged
+ * from `TASK-0144`'s own behavior.
+ */
+export const DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY = "delivery-domain-validation-bypass";
 
 /** `§12.1`'s own request field table. */
 export interface PushEventsRequest {
@@ -171,6 +208,7 @@ export function pushEvents(
   officialStore: OfficialStore,
   matchOfficialStore: MatchOfficialStore,
   instance: string,
+  featureFlagStore?: FeatureFlagStore,
 ): PushEventsResult {
   if (!request.matchId) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: matchId", instance) };
@@ -195,6 +233,10 @@ export function pushEvents(
     return { outcome: "rejected", problem: authForbidden("You are not authorized to score this match.", instance) };
   }
 
+  const domainValidationBypassed = featureFlagStore
+    ? getFeatureFlag(DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY, featureFlagStore).enabled
+    : false;
+
   // Per-event, not one bulk call: a domain-invalid DELIVERY_RECORDED
   // event must never reach ingestPushBatchWithFenceCheck's own insert
   // step at all -- calling it one event at a time (each call still
@@ -204,7 +246,7 @@ export function pushEvents(
   // whatever the stream's last ACTUALLY-accepted event was.
   const outcomes: PushOutcome[] = [];
   for (const event of request.events) {
-    if (event.type === "DELIVERY_RECORDED") {
+    if (event.type === "DELIVERY_RECORDED" && !domainValidationBypassed) {
       const deliveryInput = asDeliveryInput(event.payload);
       if (!deliveryInput) {
         outcomes.push({ eventId: event.eventId, status: "REJECTED", reasonCode: "DOMAIN_VALIDATION_FAILED", detail: "payload does not match the DeliveryInput shape" });
