@@ -21,7 +21,10 @@
  * finally builds the real Postgres-backed `AuditLogStore` adapter that
  * composition has been calling into an in-memory store for, closing a
  * loop `TASK-0146` left open (it wired the WRITE call; no real adapter
- * backed it until now).
+ * backed it until now). That adapter (`HydratedAuditLogStore`/
+ * `hydrateAuditLogStore`/`persistNewAuditLogRows`) was built here
+ * first, then moved to its own `auditLogPersistence.ts` module
+ * (`TASK-0152`) the moment a second real consumer needed it.
  *
  * **Same pure-core/IO-shell split as `TASK-0148`-`0150`:**
  * `lockMatchForDispute()`/`adjudicateDispute()` are unmodified. Both
@@ -94,7 +97,8 @@ import {
   type LockMatchForDisputePayload,
   type LockMatchForDisputeResult,
 } from "./disputeMatch.js";
-import type { AuditLogRow, AuditLogStore, AuditLogWrite } from "./auditLog.js";
+import type { AuditLogWrite } from "./auditLog.js";
+import { hydrateAuditLogStore, persistNewAuditLogRows } from "./auditLogPersistence.js";
 
 /**
  * Re-derives `disputes_select`'s own RLS `exists(...)` check (`matches`
@@ -212,66 +216,6 @@ export function mapDisputeRowToUpdateRow(row: DisputeRow): Record<string, unknow
     adjudicated_at: row.adjudicatedAt,
     row_version: row.rowVersion,
   };
-}
-
-// ---------------------------------------------------------------------------
-// The hydrated AuditLogStore -- seeds the chain head from one real
-// query, captures whatever `writeAuditLogEntry` inserts for real
-// persistence afterward. See `auditLog.ts` for the interface itself.
-// ---------------------------------------------------------------------------
-
-export class HydratedAuditLogStore implements AuditLogStore {
-  private lastHash: string | null;
-  private readonly newlyInserted: AuditLogRow[] = [];
-
-  constructor(seededLastHash: string | null) {
-    this.lastHash = seededLastHash;
-  }
-
-  getLastHash(): string | null {
-    return this.lastHash;
-  }
-
-  insert(row: AuditLogRow): void {
-    this.lastHash = row.hash;
-    this.newlyInserted.push(row);
-  }
-
-  list(): AuditLogRow[] {
-    return [...this.newlyInserted];
-  }
-
-  getNewlyInserted(): readonly AuditLogRow[] {
-    return this.newlyInserted;
-  }
-}
-
-async function hydrateAuditLogStore(client: SupabaseClient): Promise<HydratedAuditLogStore> {
-  const { data, error } = await client.from("audit_log").select("hash").order("created_at", { ascending: false }).limit(1);
-  if (error) throw new Error(`hydrateAuditLogStore: audit_log query failed: ${error.message}`);
-  const lastHash = data && data.length > 0 ? ((data[0] as Record<string, unknown>).hash as string) : null;
-  return new HydratedAuditLogStore(lastHash);
-}
-
-async function persistNewAuditLogRows(client: SupabaseClient, store: HydratedAuditLogStore): Promise<void> {
-  const rows = store.getNewlyInserted();
-  if (rows.length === 0) return;
-  const { error } = await client.from("audit_log").insert(
-    rows.map((row) => ({
-      id: row.id,
-      category: row.category,
-      actor_ref: row.actorRef,
-      impersonated_actor_ref: row.impersonatedActorRef,
-      target_ref: row.targetRef,
-      action: row.action,
-      detail: row.detail,
-      reason: row.reason,
-      prev_hash: row.prevHash,
-      hash: row.hash,
-      created_at: row.createdAt,
-    })),
-  );
-  if (error) throw new Error(`persistNewAuditLogRows: audit_log insert failed: ${error.message}`);
 }
 
 async function hydrateMatch(client: SupabaseClient, matchId: string): Promise<MatchRow | null> {
