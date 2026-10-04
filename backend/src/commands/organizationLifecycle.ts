@@ -32,22 +32,38 @@
  * `memberships`/`teams`/`matches` rows (e.g. blocking scoring on a
  * suspended org's matches) -- `§3.2`'s own Soft-deletion note says
  * explicitly "no cascading deactivation is modelled here," a future
- * task's own decision, not invented by this one. `audit_log`'s own
- * `category = ADMIN` entry for this action is likewise not written --
- * the same "a natural extension point, not wired up by this task"
- * deferral `authorize.ts`/`exportJobs.ts`/`mergePlayers.ts` each
- * already state explicitly.
+ * task's own decision, not invented by this one.
+ *
+ * **`audit_log`'s own `category = ADMIN` entry for these three actions
+ * is now wired, by `TASK-0146`** -- all three functions take a new
+ * optional trailing `auditLog` parameter; on success only, a row is
+ * written with `action` `"SUSPEND"`/`"REACTIVATE"`/`"DELETE"`. `ADMIN`
+ * requires a `reason` per `§10.1`'s own field note -- `suspend`/`delete`
+ * already have one (a required request field on each); `reactivate` has
+ * none at all in its own request shape, so it supplies a fixed,
+ * non-invented string (`"Organization reactivated"`) rather than
+ * fabricating a user-facing reason field this endpoint's own contract
+ * never asked for.
  */
 
 import { invalidTransitionError, notFoundError, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
 import type { OrganizationRow, OrganizationStore } from "./organizations.js";
+import { writeAuditLogEntry, type AuditLogWrite } from "./auditLog.js";
 
 export type SuspendOrganizationResult =
   | { outcome: "suspended"; row: OrganizationRow }
   | { outcome: "rejected"; problem: ProblemDetails };
 
 /** `POST /organizations/{orgId}/suspend`. Only an `ACTIVE` org may be suspended. */
-export function suspendOrganization(orgId: string, reason: string | undefined, actorRef: string, store: OrganizationStore, nowIso: string, instance: string): SuspendOrganizationResult {
+export function suspendOrganization(
+  orgId: string,
+  reason: string | undefined,
+  actorRef: string,
+  store: OrganizationStore,
+  nowIso: string,
+  instance: string,
+  auditLog?: AuditLogWrite,
+): SuspendOrganizationResult {
   if (!reason) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: reason", instance) };
   }
@@ -63,6 +79,11 @@ export function suspendOrganization(orgId: string, reason: string | undefined, a
 
   const updated: OrganizationRow = { ...existing, status: "SUSPENDED", rowVersion: existing.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
   store.update(updated);
+
+  if (auditLog) {
+    writeAuditLogEntry({ id: auditLog.newId, category: "ADMIN", actorRef, targetRef: orgId, action: "SUSPEND", detail: {}, reason }, auditLog.store, nowIso);
+  }
+
   return { outcome: "suspended", row: updated };
 }
 
@@ -71,7 +92,14 @@ export type ReactivateOrganizationResult =
   | { outcome: "rejected"; problem: ProblemDetails };
 
 /** `POST /organizations/{orgId}/reactivate`. Only a `SUSPENDED` org may be reactivated -- `DELETED` is terminal. */
-export function reactivateOrganization(orgId: string, actorRef: string, store: OrganizationStore, nowIso: string, instance: string): ReactivateOrganizationResult {
+export function reactivateOrganization(
+  orgId: string,
+  actorRef: string,
+  store: OrganizationStore,
+  nowIso: string,
+  instance: string,
+  auditLog?: AuditLogWrite,
+): ReactivateOrganizationResult {
   const existing = store.get(orgId);
   if (!existing) {
     return { outcome: "rejected", problem: notFoundError(`No organization visible with id ${orgId}`, instance) };
@@ -83,6 +111,15 @@ export function reactivateOrganization(orgId: string, actorRef: string, store: O
 
   const updated: OrganizationRow = { ...existing, status: "ACTIVE", rowVersion: existing.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
   store.update(updated);
+
+  if (auditLog) {
+    writeAuditLogEntry(
+      { id: auditLog.newId, category: "ADMIN", actorRef, targetRef: orgId, action: "REACTIVATE", detail: {}, reason: "Organization reactivated" },
+      auditLog.store,
+      nowIso,
+    );
+  }
+
   return { outcome: "reactivated", row: updated };
 }
 
@@ -91,7 +128,15 @@ export type DeleteOrganizationResult =
   | { outcome: "rejected"; problem: ProblemDetails };
 
 /** `POST /organizations/{orgId}/delete`. Terminal -- from `ACTIVE` or `SUSPENDED`, never reversible. */
-export function deleteOrganization(orgId: string, reason: string | undefined, actorRef: string, store: OrganizationStore, nowIso: string, instance: string): DeleteOrganizationResult {
+export function deleteOrganization(
+  orgId: string,
+  reason: string | undefined,
+  actorRef: string,
+  store: OrganizationStore,
+  nowIso: string,
+  instance: string,
+  auditLog?: AuditLogWrite,
+): DeleteOrganizationResult {
   if (!reason) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: reason", instance) };
   }
@@ -107,5 +152,10 @@ export function deleteOrganization(orgId: string, reason: string | undefined, ac
 
   const updated: OrganizationRow = { ...existing, status: "DELETED", rowVersion: existing.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
   store.update(updated);
+
+  if (auditLog) {
+    writeAuditLogEntry({ id: auditLog.newId, category: "ADMIN", actorRef, targetRef: orgId, action: "DELETE", detail: {}, reason }, auditLog.store, nowIso);
+  }
+
   return { outcome: "deleted", row: updated };
 }

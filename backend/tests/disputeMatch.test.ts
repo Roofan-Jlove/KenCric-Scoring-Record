@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryMatchStore, type MatchRow, type MatchState } from "../src/commands/matches.js";
 import { adjudicateDispute, getDispute, InMemoryDisputeStore, listDisputes, lockMatchForDispute } from "../src/commands/disputeMatch.js";
+import { InMemoryAuditLogStore } from "../src/commands/auditLog.js";
 
 function seedMatch(store: InMemoryMatchStore, id: string, state: MatchState): MatchRow {
   const row: MatchRow = {
@@ -270,5 +271,76 @@ describe("listDisputes (TASK-0124)", () => {
     expect(second.items).toHaveLength(1);
     expect(second.items[0].id).not.toBe(first.items[0].id);
     expect(second.hasMore).toBe(false);
+  });
+});
+
+describe("audit_log wiring (TASK-0146)", () => {
+  it("lockMatchForDispute writes a DISPUTE/LOCK row when auditLog is passed", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    const auditLogStore = new InMemoryAuditLogStore();
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+
+    lockMatchForDispute("match-1", { reason: "scoring disagreement" }, matchStore, disputeStore, "dispute-1", "admin-1", "2026-10-05T00:00:00Z", "req-1", {
+      store: auditLogStore,
+      newId: "audit-1",
+    });
+
+    const rows = auditLogStore.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].category).toBe("DISPUTE");
+    expect(rows[0].action).toBe("LOCK");
+    expect(rows[0].targetRef).toBe("dispute-1");
+    expect(rows[0].reason).toBe("scoring disagreement");
+  });
+
+  it("adjudicateDispute writes a DISPUTE/ADJUDICATE row when auditLog is passed", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    const auditLogStore = new InMemoryAuditLogStore();
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+    lockMatchForDispute("match-1", { reason: "x" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1");
+
+    adjudicateDispute("match-1", { ruling: "Upheld as scored" }, matchStore, disputeStore, "admin-2", "2026-10-05T00:00:00Z", "req-2", { store: auditLogStore, newId: "audit-1" });
+
+    const rows = auditLogStore.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].category).toBe("DISPUTE");
+    expect(rows[0].action).toBe("ADJUDICATE");
+    expect(rows[0].targetRef).toBe("dispute-1");
+    expect(rows[0].reason).toBe("Upheld as scored");
+  });
+
+  it("with no auditLog passed, no row is written (today's behavior, unchanged)", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+
+    const result = lockMatchForDispute("match-1", { reason: "x" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1");
+    expect(result.outcome).toBe("locked");
+  });
+
+  it("a rejected lockMatchForDispute writes no audit row", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    const auditLogStore = new InMemoryAuditLogStore();
+
+    const result = lockMatchForDispute("match-1", { reason: "x" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1", { store: auditLogStore, newId: "audit-1" });
+    expect(result.outcome).toBe("rejected");
+    expect(auditLogStore.list()).toHaveLength(0);
+  });
+
+  it("two audit entries chain: the second row's prevHash equals the first row's hash", () => {
+    const matchStore = new InMemoryMatchStore();
+    const disputeStore = new InMemoryDisputeStore();
+    const auditLogStore = new InMemoryAuditLogStore();
+    seedMatch(matchStore, "match-1", "IN_PROGRESS");
+
+    lockMatchForDispute("match-1", { reason: "x" }, matchStore, disputeStore, "dispute-1", "admin-1", "now", "req-1", { store: auditLogStore, newId: "audit-1" });
+    adjudicateDispute("match-1", { ruling: "Upheld" }, matchStore, disputeStore, "admin-2", "later", "req-2", { store: auditLogStore, newId: "audit-2" });
+
+    const rows = auditLogStore.list();
+    expect(rows[0].prevHash).toBeNull();
+    expect(rows[1].prevHash).toBe(rows[0].hash);
   });
 });

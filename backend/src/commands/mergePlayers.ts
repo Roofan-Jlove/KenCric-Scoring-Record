@@ -43,15 +43,12 @@
  * `SVC-RECONCILER`.
  *
  * **`§11.6`'s own "with the merge logged" text (`FR-039`, `AUD-002`)
- * is not implemented here either** -- `data-specification.md §10`'s
- * own `audit_log.category` enum already lists `PLAYER_MERGE` (and
- * marks `reason` as required-by-application-logic for exactly this
- * category, matching this endpoint's own request field one-for-one),
- * but no backend module in this entire codebase has ever written a
- * literal `audit_log` row -- the same "a natural extension point, not
- * wired up by this task" deferral `authorize.ts`/`exportJobs.ts` each
- * already state explicitly. `reason` is validated as present but not
- * yet persisted anywhere.
+ * is now wired, by `TASK-0146`** -- `mergePlayers` takes a new optional
+ * trailing `auditLog` parameter; on success only, a `category:
+ * "PLAYER_MERGE"` row is written with `payload.reason` persisted
+ * directly (the exact field `§10.1`'s own required-reason note already
+ * matched one-for-one). Optional and appended last so every
+ * pre-existing call site in `mergePlayers.test.ts` is untouched.
  *
  * `Authz: Org-admin or platform-admin` left to RLS, per `FA-7` -- the
  * default every `§6.1`/`§11` module except `signOffMatch` already uses
@@ -61,6 +58,7 @@
 
 import { businessRuleValidationError, invalidTransitionError, notFoundError, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
 import type { PlayerRow, PlayerStore } from "./players.js";
+import { writeAuditLogEntry, type AuditLogWrite } from "./auditLog.js";
 
 export interface MergePlayersPayload {
   losingPlayerId?: string;
@@ -94,6 +92,7 @@ export function mergePlayers(
   actorRef: string,
   nowIso: string,
   instance: string,
+  auditLog?: AuditLogWrite,
 ): MergePlayersResult {
   if (!payload.losingPlayerId) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: losingPlayerId", instance) };
@@ -147,6 +146,22 @@ export function mergePlayers(
     updatedBy: actorRef,
   };
   store.update(updatedLoser);
+
+  if (auditLog) {
+    writeAuditLogEntry(
+      {
+        id: auditLog.newId,
+        category: "PLAYER_MERGE",
+        actorRef,
+        targetRef: survivingPlayerId,
+        action: "MERGE",
+        detail: { survivingPlayerId, losingPlayerId: payload.losingPlayerId },
+        reason: payload.reason,
+      },
+      auditLog.store,
+      nowIso,
+    );
+  }
 
   return { outcome: "merged", row: survivor };
 }

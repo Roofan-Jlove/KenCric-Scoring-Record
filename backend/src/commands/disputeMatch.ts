@@ -45,10 +45,22 @@
  * `disputes` table rather than ported from a written endpoint spec
  * (none exists for this specific pair, unlike every prior `§6.1`/`§11`
  * task) -- the closest this cluster gets to "no invention needed."
+ *
+ * **`TASK-0146` wires in the `audit_log` write this module's own
+ * original doc comment never flagged as missing but `§10.1`'s own
+ * Purpose line explicitly names ("dispute adjudications," and
+ * `system-architecture.md §3.12`'s fuller line names "dispute locks"
+ * too)** -- both `lockMatchForDispute` and `adjudicateDispute` take a
+ * new optional trailing `auditLog` parameter; on success only (never on
+ * a rejection), a `category: "DISPUTE"` row is written, action `"LOCK"`
+ * / `"ADJUDICATE"`, `targetRef` the dispute's own id. Optional and
+ * appended last so every pre-existing call site in
+ * `disputeMatch.test.ts` is untouched.
  */
 
 import { businessRuleValidationError, invalidTransitionError, notFoundError, schemaValidationError, type ProblemDetails } from "../authz/errors.js";
 import type { MatchRow, MatchState, MatchStore } from "./matches.js";
+import { writeAuditLogEntry, type AuditLogWrite } from "./auditLog.js";
 
 export type DisputeStatus = "OPEN" | "ADJUDICATED";
 
@@ -95,6 +107,7 @@ export function lockMatchForDispute(
   actorRef: string,
   nowIso: string,
   instance: string,
+  auditLog?: AuditLogWrite,
 ): LockMatchForDisputeResult {
   if (!payload.reason) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: reason", instance) };
@@ -132,6 +145,14 @@ export function lockMatchForDispute(
   const updatedMatch: MatchRow = { ...match, state: "DISPUTED", rowVersion: match.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
   matchStore.update(updatedMatch);
 
+  if (auditLog) {
+    writeAuditLogEntry(
+      { id: auditLog.newId, category: "DISPUTE", actorRef, targetRef: disputeRow.id, action: "LOCK", detail: { matchId }, reason: payload.reason },
+      auditLog.store,
+      nowIso,
+    );
+  }
+
   return { outcome: "locked", row: disputeRow };
 }
 
@@ -153,6 +174,7 @@ export function adjudicateDispute(
   actorRef: string,
   nowIso: string,
   instance: string,
+  auditLog?: AuditLogWrite,
 ): AdjudicateDisputeResult {
   if (!payload.ruling) {
     return { outcome: "rejected", problem: schemaValidationError("Missing required field: ruling", instance) };
@@ -181,6 +203,22 @@ export function adjudicateDispute(
 
   const updatedMatch: MatchRow = { ...match, state: dispute.lockedFromState, rowVersion: match.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
   matchStore.update(updatedMatch);
+
+  if (auditLog) {
+    writeAuditLogEntry(
+      {
+        id: auditLog.newId,
+        category: "DISPUTE",
+        actorRef,
+        targetRef: updatedDispute.id,
+        action: "ADJUDICATE",
+        detail: { matchId, resultingCorrections: updatedDispute.resultingCorrections },
+        reason: payload.ruling,
+      },
+      auditLog.store,
+      nowIso,
+    );
+  }
 
   return { outcome: "adjudicated", row: updatedDispute };
 }

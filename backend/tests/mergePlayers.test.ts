@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryPlayerStore, type PlayerRow } from "../src/commands/players.js";
 import { InMemoryPlayerAppearanceLookup, mergePlayers } from "../src/commands/mergePlayers.js";
+import { InMemoryAuditLogStore } from "../src/commands/auditLog.js";
 
 function seedPlayer(store: InMemoryPlayerStore, id: string, overrides: Partial<PlayerRow> = {}): PlayerRow {
   const row: PlayerRow = {
@@ -156,5 +157,48 @@ describe("mergePlayers (TASK-0121)", () => {
     mergePlayers("player-survivor", { losingPlayerId: "player-loser", reason: "duplicate" }, store, lookup, "admin-1", "now", "req-1");
 
     expect(store.get("player-loser")).toEqual(loser);
+  });
+});
+
+describe("audit_log wiring (TASK-0146)", () => {
+  it("a successful merge writes a PLAYER_MERGE row when auditLog is passed", () => {
+    const store = new InMemoryPlayerStore();
+    seedPlayer(store, "player-survivor");
+    seedPlayer(store, "player-loser");
+    const lookup = new InMemoryPlayerAppearanceLookup();
+    const auditLogStore = new InMemoryAuditLogStore();
+
+    mergePlayers("player-survivor", { losingPlayerId: "player-loser", reason: "duplicate registration" }, store, lookup, "admin-1", "2026-10-05T00:00:00Z", "req-1", {
+      store: auditLogStore,
+      newId: "audit-1",
+    });
+
+    const rows = auditLogStore.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].category).toBe("PLAYER_MERGE");
+    expect(rows[0].action).toBe("MERGE");
+    expect(rows[0].targetRef).toBe("player-survivor");
+    expect(rows[0].reason).toBe("duplicate registration");
+  });
+
+  it("with no auditLog passed, no row is written (today's behavior, unchanged)", () => {
+    const store = new InMemoryPlayerStore();
+    seedPlayer(store, "player-survivor");
+    seedPlayer(store, "player-loser");
+    const lookup = new InMemoryPlayerAppearanceLookup();
+
+    const result = mergePlayers("player-survivor", { losingPlayerId: "player-loser", reason: "duplicate" }, store, lookup, "admin-1", "now", "req-1");
+    expect(result.outcome).toBe("merged");
+  });
+
+  it("a rejected merge writes no audit row", () => {
+    const store = new InMemoryPlayerStore();
+    seedPlayer(store, "player-survivor");
+    const lookup = new InMemoryPlayerAppearanceLookup();
+    const auditLogStore = new InMemoryAuditLogStore();
+
+    const result = mergePlayers("player-survivor", { losingPlayerId: "no-such-player", reason: "x" }, store, lookup, "admin-1", "now", "req-1", { store: auditLogStore, newId: "audit-1" });
+    expect(result.outcome).toBe("rejected");
+    expect(auditLogStore.list()).toHaveLength(0);
   });
 });
