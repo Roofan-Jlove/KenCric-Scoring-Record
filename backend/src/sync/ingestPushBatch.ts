@@ -31,6 +31,26 @@
  * hash-chain checks. `IncomingPushEvent` gains optional `type`/
  * `eventVersion` fields (`api-specification.md §12.1`'s own wire
  * shape) so that composition can tell which events need it.
+ *
+ * `TASK-0148` widens `IncomingPushEvent` once more, for the identical
+ * reason: `api-specification.md §12.1`'s own full per-event wire shape
+ * (`{ eventId, deviceSeq, hlc, eventOrdinal, type, eventVersion,
+ * payload, supersedes?, voids?, actorRef, provenance, recordedAt,
+ * prevHash, hash }`) carries several fields this module's own
+ * sequence/hash-chain logic has never needed to read --
+ * `hlc`/`eventOrdinal`/`actorRef`/`provenance`/`recordedAt`/
+ * `supersedes`/`voids`. They matter only to the real `match_events`
+ * persistence layer (`backend/src/sync/syncEventsPersistence.ts`),
+ * which needs the full row to `INSERT`. **`eventOrdinal` is
+ * client-supplied, confirmed directly from `§12.1`'s own field table**
+ * -- the device computes its own dense ordinal and the server stores
+ * it verbatim (`system-architecture.md`'s own "the client is the
+ * deriver" framing, `SYNC-005`/`SEC-014`), so this module's own
+ * `InMemoryMatchEventStore.nextOrdinal` counter was always a test-only
+ * stand-in, never something a real adapter needs to replicate. All
+ * seven new fields are optional, the same "every pre-existing
+ * construction site keeps compiling unchanged" reasoning `TASK-0144`'s
+ * own widening already used.
  */
 
 export interface IncomingPushEvent {
@@ -51,6 +71,14 @@ export interface IncomingPushEvent {
    */
   type?: string;
   eventVersion?: number;
+  /** `TASK-0148`: real `match_events` persistence fields -- see this interface's own doc comment. Never read by this module's own sequence/hash-chain logic. */
+  hlc?: string;
+  eventOrdinal?: number;
+  actorRef?: string;
+  provenance?: unknown;
+  recordedAt?: string;
+  supersedes?: string | null;
+  voids?: string | null;
 }
 
 export type PushOutcome =
@@ -129,6 +157,23 @@ export function ingestPushBatch(
  * per system-architecture.md's HLC-based canonical ordering. Extended
  * here rather than duplicated into a second store, since push and pull
  * share the same underlying table in a real system.
+ *
+ * **CORRECTION, `TASK-0148`:** the claim directly above is wrong,
+ * found while building the real Postgres persistence layer
+ * (`syncEventsPersistence.ts`, see that module's own doc comment for
+ * the full re-check against `system-architecture.md §3.7` and
+ * `api-specification.md §12.1`). `event_ordinal` is in fact
+ * **client-supplied**, like `device_seq` -- the server only performs
+ * "ordinal sanity" checking on ingest (§3.7's own Push-flow text), it
+ * never generates the value. This class's own `nextOrdinal` counter is
+ * harmless only because it backs `eventsAfter()`'s pull-side pagination
+ * in tests -- nothing in this module's own accept/reject logic
+ * (`ingestPushBatch`/`ingestPushBatchWithFenceCheck`) ever reads
+ * `event_ordinal` at all. Left AS-IS here deliberately -- fixing this
+ * class's own test-only ordinal generation is a real, bounded
+ * follow-up, out of `TASK-0148`'s own scope (that task's diff is the
+ * new persistence layer only, which correctly stores the client's own
+ * `eventOrdinal` verbatim instead of relying on this counter).
  */
 export class InMemoryMatchEventStore implements MatchEventStore {
   private readonly eventsById = new Map<string, IncomingPushEvent>();
