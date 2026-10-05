@@ -41,7 +41,10 @@
  * guaranteed miss, since the REAL idempotency decision already
  * happened via `idempotencyKeys.ts` before this function is ever
  * called), the same shape `signOffMatchPersistence.ts`/
- * `exportJobsPersistence.ts` already established.
+ * `exportJobsPersistence.ts` already established. `mapMembershipRowFromDb`/
+ * `hydrateMembership` (originally built here) moved to a shared
+ * `membershipsPersistence.ts` (`TASK-0155`) the moment a second real
+ * consumer (`invitationsPersistence.ts`) needed the read mapping.
  *
  * `NOT integration-tested` -- same disclaimer as every other IO module
  * in this backlog.
@@ -53,34 +56,12 @@ import { deactivateMember, InMemoryIdempotencyStore, type DeactivateMemberResult
 import { InMemoryMembershipStore, type MembershipRow } from "./memberships.js";
 import { isOrganizationAdmin } from "./organizationLifecyclePersistence.js";
 import { getPriorSuccessFromDb, recordSuccessToDb } from "./idempotencyKeys.js";
+import { hydrateMembership } from "./membershipsPersistence.js";
 
 const ENDPOINT = "deactivate-member";
 
-export function mapMembershipRowFromDb(row: Record<string, unknown>): MembershipRow {
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    organizationId: row.organization_id as string,
-    roles: row.roles as string[],
-    status: row.status as MembershipRow["status"],
-    invitedAt: (row.invited_at as string) ?? null,
-    acceptedAt: (row.accepted_at as string) ?? null,
-    rowVersion: row.row_version as number,
-    createdAt: row.created_at as string,
-    createdBy: row.created_by as string,
-    updatedAt: row.updated_at as string,
-    updatedBy: row.updated_by as string,
-  };
-}
-
 export function mapMembershipRowToUpdateRow(row: MembershipRow): Record<string, unknown> {
   return { status: row.status, row_version: row.rowVersion, updated_at: row.updatedAt, updated_by: row.updatedBy };
-}
-
-async function hydrateMembership(client: SupabaseClient, membershipId: string): Promise<MembershipRow | null> {
-  const { data, error } = await client.from("memberships").select("*").eq("id", membershipId).maybeSingle();
-  if (error) throw new Error(`hydrateMembership: memberships query failed: ${error.message}`);
-  return data ? mapMembershipRowFromDb(data as Record<string, unknown>) : null;
 }
 
 async function persistMembershipUpdate(client: SupabaseClient, row: MembershipRow): Promise<void> {
