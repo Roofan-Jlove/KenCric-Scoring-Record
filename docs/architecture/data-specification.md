@@ -901,6 +901,41 @@ Device-local process/bookkeeping state (§1.7 policy 3) — `sync_cursors` and `
 **Soft deletion:** not applicable — a terminal (`READY`/`FAILED`) job is simply never transitioned again; no delete path is specified anywhere in `§15`.
 **Sync model:** CRUD-entity; a requester reads and creates only their own jobs (`requested_by = auth.uid()`), matching `exportJobs.ts`'s own "worker-side transition" framing for everything past creation.
 
+### 10.5 `personal_data_exports`
+
+*Purpose:* **added by RCR, 2026-10-05 (`TASK-0157`)** — `accountDataLifecycle.ts`'s own `TASK-0104` doc comment already flagged this gap: `api-specification.md §11.9`'s own text says personal-data export "reuses the same export-job mechanism as a match scorecard export," but true code-level table reuse would mean generalising `§10.4` `export_jobs`' own `match_id`-specific shape into a subject-agnostic one — deliberately not done, a parallel, intentionally-duplicated state machine instead, mirroring `backend/src/commands/accountDataLifecycle.ts`'s own `PersonalDataExportRow` field-for-field. **Unlike every prior table this session's Edge Function work found with NO write grant at all** (`disputes`/`organizations`/`memberships`/`invitations`/`divergences`), `§11.9`'s own Authz is "the user themselves only" — this table is correctly granted `INSERT`/`SELECT` to `authenticated` from the start, gated by `user_id = auth.uid()`, with no app-level admin/scorer check to retrofit around.
+
+| Field | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `export_id` | `uuid` | no | — | **PK.** Caller-supplied. |
+| `user_id` | `uuid` | no | — | FK → `users.id`. |
+| `status` | `text` | no | `'QUEUED'` | `CHECK` in `('QUEUED', 'PROCESSING', 'READY', 'FAILED')` — `accountDataLifecycle.ts`'s own `PersonalExportStatus` union. |
+| `download_url` | `text` | yes | — | Null until `status = READY`. |
+| `expires_at` | `timestamptz` | yes | — | Null until `status = READY`. |
+| `failure_reason` | `text` | yes | — | Set iff `status = FAILED`. |
+| `requested_at` | `timestamptz` | no | `now()` | |
+
+**PK:** `export_id`. **FK:** `user_id → users.id`. **IX:** `user_id`.
+**Grants:** `INSERT`/`SELECT` to `authenticated`, both gated by `user_id = auth.uid()`. `UPDATE` (status transitions) has no client-facing grant at all — written only by the command handler and a future rendering worker, the identical convention `export_jobs` already uses.
+**Soft deletion:** not applicable, same reasoning `export_jobs` already uses.
+**Sync model:** CRUD-entity; a requester reads and creates only their own exports.
+
+### 10.6 `account_deletion_requests`
+
+*Purpose:* **added by RCR, 2026-10-05 (`TASK-0157`)** — the storage half of `accountDataLifecycle.ts`'s own `requestAccountDeletion`/`markAccountDeletionCompleted` pair (`§11.9`'s `DELETE /users/me`), never built until now.
+
+| Field | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `user_id` | `uuid` | no | — | **PK.** FK → `users.id` — at most one deletion request per account, never multiple concurrent ones (a repeat request against an already-`PROCESSING`/`COMPLETED` row is a safe no-op, `accountDataLifecycle.ts`'s own `requestAccountDeletion` logic). |
+| `status` | `text` | no | `'PROCESSING'` | `CHECK` in `('PROCESSING', 'COMPLETED')`. |
+| `requested_at` | `timestamptz` | no | `now()` | |
+| `completed_at` | `timestamptz` | yes | — | Set iff `status = COMPLETED`. |
+
+**PK:** `user_id`. **FK:** `user_id → users.id`.
+**Grants:** `INSERT`/`SELECT` to `authenticated`, both gated by `user_id = auth.uid()` — `SELECT` backs this module's own idempotency check ("does a request already exist"), not a client-facing status poll (`§11.9`'s own text: completion is communicated by email, never polled). `UPDATE` (the `PROCESSING → COMPLETED` worker-side transition) has no client-facing grant.
+**Soft deletion:** not applicable — this row IS itself the record of a deletion in progress, never soft-deleted.
+**Sync model:** server-only past creation; a client only ever creates its own row once, never reads it back for polling purposes in the documented flow.
+
 ---
 
 ## 11. How this model supports offline-first operation
@@ -961,4 +996,5 @@ A direct summary of the design decisions above, stated once as the answer to the
 | 0.1.0 | 2026-10-05 | **RCR (`TASK-0149`, `implementation-task-backlog.md`): added §9.4 `idempotency_keys` (new table, 29th in this document).** `api-specification.md §8.1`/`§8.2` fully specifies the `Idempotency-Key` mechanism every command/RPC endpoint with a side effect uses — a client-generated opaque string, scoped per-endpoint, retained `[DEFAULT]` 24h — but no table had ever backed it; every command whose own `IdempotencyStore` interface needed real persistence (`signOffMatch`, `deactivateMember`, `mergePlayers`, …) has only ever had an in-memory test double standing in for this table until now. **Only successful outcomes are ever stored** — `§8.2`'s own text: a failed attempt never "poisons" the key, matching every already-built `IdempotencyStore`'s own `getPriorSuccess`/`recordSuccess` naming exactly (never a `recordFailure`). `PK (endpoint, idempotency_key)` enforces `§8.2`'s own "idempotency is per-endpoint" rule structurally, not as a runtime check a caller could forget. No DB-enforced TTL — the 24h retention window is an application-level policy; a periodic cleanup job is a real, bounded follow-up, not built here. |
 | 0.1.0 | 2026-10-05 | **RCR (`TASK-0150`, `implementation-task-backlog.md`): added §10.4 `export_jobs` (new table, 30th in this document).** `api-specification.md §15.1`/`§15.2`'s own request/response contracts already give the complete field shape for an export job's lifecycle — `TASK-0103`'s own doc comment had already found this exact gap (no `export_jobs`-style table anywhere in this schema, only a generic `EXPORT` category inside `audit_log.category`'s enum) and flagged it as "not an invention" once built, since `exportJobs.ts`'s own `ExportJobRow` was itself already a direct transcription of `§15`'s contract. This migration mirrors that row shape field-for-field, promoting `VALID_EXPORT_FORMATS`/`ExportStatus` to DB-level `CHECK` constraints. **Soft deletion:** not applicable, same reasoning `audit_log`/`sign_offs` already use for terminal, never-deleted state. **Sync model:** a requester reads only their own jobs (`requested_by = auth.uid()`); status transitions are written only by the command handler and a future rendering worker, never by a client directly. |
 | 0.1.0 | 2026-10-05 | **RCR (`TASK-0151`, `implementation-task-backlog.md`): bug fix, §10.4 `export_jobs` gains its own `INSERT` grant+policy (`20260923000049`), never added by `TASK-0150`.** Found while wiring the real `dispute-lock`/`dispute-adjudicate` Edge Functions and checking `export_jobs`' own grants against `disputes`' deliberately-stricter pattern — `TASK-0150`'s own migration enabled RLS with only a `SELECT` policy, meaning the command handler's own real insert would have failed under RLS's default-deny. `§10.4`'s own body text updated to describe the now-correct grants. No change to `§8.6 disputes` itself — its own "no write grant at all" shape was always deliberate (`TASK-0122`'s own comment: "goes through the command handler"), not a bug; see `TASK-0151`'s own backlog entry for how the real handler resolves this (a service-role client, not a grant). |
+| 0.1.0 | 2026-10-05 | **RCR (`TASK-0157`, `implementation-task-backlog.md`): added §10.5 `personal_data_exports` and §10.6 `account_deletion_requests` (new tables, 31st and 32nd in this document).** The storage half of `accountDataLifecycle.ts`'s own already-decided, deliberately-parallel state machines (`TASK-0104`'s own doc comment: personal-data export reuses `export_jobs`' own *pattern*, never its table, to avoid generalising a previously-merged task's contract uninvited). **Unlike every prior Edge-Function-backing table this session found with no write grant at all** (`disputes`/`organizations`/`memberships`/`invitations`/`divergences`), `api-specification.md §11.9`'s own Authz is "the user themselves only" — both tables are correctly granted `INSERT`/`SELECT` to `authenticated` from the start, gated by `user_id = auth.uid()`, with no app-level admin/scorer check needed. `UPDATE` (status transitions) has no client-facing grant on either table, the same convention `export_jobs` already uses. `account_deletion_requests`' own PK is `user_id` itself (at most one deletion request per account, never multiple concurrent ones). |
 
