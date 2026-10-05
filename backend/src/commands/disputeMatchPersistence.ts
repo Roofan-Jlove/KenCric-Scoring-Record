@@ -99,6 +99,7 @@ import {
 } from "./disputeMatch.js";
 import type { AuditLogWrite } from "./auditLog.js";
 import { hydrateAuditLogStore, persistNewAuditLogRows } from "./auditLogPersistence.js";
+import { hydrateMatch } from "./matchesPersistence.js";
 
 /**
  * Re-derives `disputes_select`'s own RLS `exists(...)` check (`matches`
@@ -131,38 +132,6 @@ export async function isOrganizationAdminForMatch(userClient: SupabaseClient, us
 // ---------------------------------------------------------------------------
 // Pure row <-> type mapping.
 // ---------------------------------------------------------------------------
-
-export function mapMatchRowFromDb(row: Record<string, unknown>): MatchRow {
-  return {
-    id: row.id as string,
-    organizationId: (row.organization_id as string) ?? null,
-    originDeviceId: row.origin_device_id as string,
-    claimStatus: row.claim_status as "GUEST" | "CLAIMED",
-    homeTeamId: row.home_team_id as string,
-    awayTeamId: row.away_team_id as string,
-    homeXi: row.home_xi,
-    awayXi: row.away_xi,
-    format: row.format as MatchRow["format"],
-    oversAllotted: (row.overs_allotted as number) ?? null,
-    conditionsProfile: row.conditions_profile,
-    conditionsProfileVersion: (row.conditions_profile_version as number) ?? null,
-    dlsTableVersion: (row.dls_table_version as number) ?? null,
-    rainMethod: row.rain_method as MatchRow["rainMethod"],
-    tossWinnerTeamId: (row.toss_winner_team_id as string) ?? null,
-    tossDecision: (row.toss_decision as string) ?? null,
-    venue: (row.venue as string) ?? null,
-    scheduledStart: (row.scheduled_start as string) ?? null,
-    matchTimezone: row.match_timezone as string,
-    minOversForResult: (row.min_overs_for_result as number) ?? null,
-    state: row.state as MatchRow["state"],
-    result: null,
-    rowVersion: row.row_version as number,
-    createdAt: row.created_at as string,
-    createdBy: row.created_by as string,
-    updatedAt: row.updated_at as string,
-    updatedBy: row.updated_by as string,
-  };
-}
 
 export function mapMatchRowToUpdateRow(row: MatchRow): Record<string, unknown> {
   return {
@@ -216,12 +185,6 @@ export function mapDisputeRowToUpdateRow(row: DisputeRow): Record<string, unknow
     adjudicated_at: row.adjudicatedAt,
     row_version: row.rowVersion,
   };
-}
-
-async function hydrateMatch(client: SupabaseClient, matchId: string): Promise<MatchRow | null> {
-  const { data, error } = await client.from("matches").select("*").eq("id", matchId).maybeSingle();
-  if (error) throw new Error(`hydrateMatch: matches query failed: ${error.message}`);
-  return data ? mapMatchRowFromDb(data as Record<string, unknown>) : null;
 }
 
 async function persistMatchUpdate(client: SupabaseClient, row: MatchRow): Promise<void> {
