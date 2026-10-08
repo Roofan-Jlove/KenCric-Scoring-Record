@@ -21,7 +21,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { proposeDivergenceResolutionReal } from "../../../../backend/src/commands/divergenceResolutionPersistence.ts";
+import { proposeDivergenceResolutionReal } from "../_shared/backend/divergenceResolutionPersistence.js";
 
 interface ProposeRequestBody {
   proposedValue?: unknown;

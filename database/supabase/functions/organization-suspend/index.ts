@@ -20,7 +20,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { suspendOrganizationReal } from "../../../../backend/src/commands/organizationLifecyclePersistence.ts";
+import { suspendOrganizationReal } from "../_shared/backend/organizationLifecyclePersistence.js";
 
 interface SuspendRequestBody {
   reason?: string;

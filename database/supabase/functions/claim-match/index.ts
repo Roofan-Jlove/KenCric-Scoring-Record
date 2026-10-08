@@ -21,7 +21,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { claimMatchReal } from "../../../../backend/src/commands/claimMatchPersistence.ts";
+import { claimMatchReal } from "../_shared/backend/claimMatchPersistence.js";
 
 interface ClaimMatchRequestBody {
   organizationId?: string | null;

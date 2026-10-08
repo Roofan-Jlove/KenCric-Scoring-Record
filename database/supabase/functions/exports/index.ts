@@ -20,7 +20,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { createExportJobReal } from "../../../../backend/src/commands/exportJobsPersistence.ts";
+import { createExportJobReal } from "../_shared/backend/exportJobsPersistence.js";
 
 interface ExportsRequestBody {
   format?: string;

@@ -16,7 +16,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { inviteMemberReal } from "../../../../backend/src/commands/invitationsPersistence.ts";
+import { inviteMemberReal } from "../_shared/backend/invitationsPersistence.js";
 
 interface InviteMemberRequestBody {
   email?: string;

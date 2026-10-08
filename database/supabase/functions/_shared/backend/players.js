@@ -1,0 +1,153 @@
+/**
+ * TASK-0096: generic CRUD for `players`
+ * (`data-specification.md §4.2`, `api-specification.md §4/§5/§6/§7/§10`).
+ *
+ * `createPlayer`/`updatePlayer`/`getPlayer`/`listPlayers` mirror
+ * `teams.ts`'s own create/update/list/get-one shape directly
+ * (`TASK-0094`) -- same error constructors, same `PUT` create-or-update
+ * semantics, same keyset-paginated list shape, nullable `organizationId`
+ * for a local/ad-hoc player.
+ *
+ * `status`/`mergedIntoPlayerId` are structurally absent from BOTH
+ * `CreatePlayerPayload` and `UpdatePlayerPayload` -- `api-specification.md
+ * §10.2`'s own deviation note: "`merged_into_player_id`/`status=MERGED`
+ * are response-only -- a merge is a dedicated command (`§11.6`), never a
+ * plain field edit." Every row is created `status: "ACTIVE"`,
+ * `mergedIntoPlayerId: null`; `§11.6`'s own future, not-yet-minted
+ * command is their only legitimate mutator. `DELETE /players/{id}` is
+ * correspondingly NOT implemented here, same shape `memberships.ts`
+ * (`TASK-0095`) already established for its own deactivation.
+ *
+ * The table's own `CK: merged_into_player_id IS NOT NULL ⇔ status =
+ * MERGED` needs no business-rule check in this module at all -- since
+ * neither field is ever accepted via this module's own payloads, the
+ * CK can never be violated through this code path.
+ *
+ * `dob` is stored as a plain nullable date with no redaction logic --
+ * `NFR-039` ("Minors' data handling," `Should·P2`) governs consent/
+ * reduced-visibility display rules, but is not MVP scope per `FA-8`;
+ * see this task's own mint note for the `(NFR-033)` citation this
+ * table's own field comment uses instead (a discovery-level number,
+ * not the SRS-consolidated one).
+ */
+import { notFoundError, schemaValidationError, staleVersionError } from "./errors.js";
+const REQUIRED_FIELDS = ["id", "name"];
+/** §4.1 schema layer: field presence -- runs before any domain logic. 400 on failure. */
+export function validatePlayerSchema(payload, instance) {
+    for (const field of REQUIRED_FIELDS) {
+        const value = payload[field];
+        if (value === undefined || value === null || value === "") {
+            return schemaValidationError(`Missing required field: ${field}`, instance);
+        }
+    }
+    return null;
+}
+/** The create half of `PUT /players/{id}`. */
+export function createPlayer(payload, store, actorRef, nowIso, instance) {
+    const schemaProblem = validatePlayerSchema(payload, instance);
+    if (schemaProblem)
+        return { outcome: "rejected", problem: schemaProblem };
+    const validated = payload;
+    if (store.get(validated.id)) {
+        return {
+            outcome: "rejected",
+            problem: schemaValidationError(`A player with id ${validated.id} already exists -- use the update path, not create`, instance),
+        };
+    }
+    const row = {
+        id: validated.id,
+        organizationId: validated.organizationId ?? null,
+        name: validated.name,
+        dob: validated.dob ?? null,
+        photoRef: validated.photoRef ?? null,
+        status: "ACTIVE",
+        mergedIntoPlayerId: null,
+        rowVersion: 1,
+        createdAt: nowIso,
+        createdBy: actorRef,
+        updatedAt: nowIso,
+        updatedBy: actorRef,
+    };
+    store.insert(row);
+    return { outcome: "created", row };
+}
+/** The update half of `PUT /players/{id}`. Only fields present in
+ * [payload] are changed (`undefined` = "leave unchanged"). */
+export function updatePlayer(id, payload, store, actorRef, nowIso, instance) {
+    const existing = store.get(id);
+    if (!existing) {
+        return { outcome: "rejected", problem: notFoundError(`No player visible with id ${id}`, instance) };
+    }
+    if (payload.rowVersion === undefined || payload.rowVersion === null) {
+        return { outcome: "rejected", problem: schemaValidationError("Missing required field: rowVersion", instance) };
+    }
+    if (payload.rowVersion !== existing.rowVersion) {
+        return {
+            outcome: "rejected",
+            problem: staleVersionError(`expected row_version ${existing.rowVersion}, got ${payload.rowVersion}`, instance),
+        };
+    }
+    if (payload.name !== undefined && (payload.name === null || payload.name === "")) {
+        return { outcome: "rejected", problem: schemaValidationError("name must not be empty", instance) };
+    }
+    const updatedRow = {
+        ...existing,
+        organizationId: payload.organizationId !== undefined ? payload.organizationId : existing.organizationId,
+        name: payload.name ?? existing.name,
+        dob: payload.dob !== undefined ? payload.dob : existing.dob,
+        photoRef: payload.photoRef !== undefined ? payload.photoRef : existing.photoRef,
+        rowVersion: existing.rowVersion + 1,
+        updatedAt: nowIso,
+        updatedBy: actorRef,
+    };
+    store.update(updatedRow);
+    return { outcome: "updated", row: updatedRow };
+}
+export function getPlayer(id, store, instance) {
+    const row = store.get(id);
+    if (!row) {
+        return { outcome: "rejected", problem: notFoundError(`No player visible with id ${id}`, instance) };
+    }
+    return { outcome: "found", row };
+}
+/** §6's own defaults: `[DEFAULT] 50`, `[DEFAULT] max 200`. */
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+/** `GET /players`. Keyset-paginated by `id` ascending (§6); `organizationId`
+ * and `nameSearch` are both explicitly spec-named filterable fields (§6). */
+export function listPlayers(query, store) {
+    const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    let rows = store.list().slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (query.organizationId !== undefined && query.organizationId !== null) {
+        rows = rows.filter((r) => r.organizationId === query.organizationId);
+    }
+    if (query.nameSearch) {
+        const needle = query.nameSearch.toLowerCase();
+        rows = rows.filter((r) => r.name.toLowerCase().includes(needle));
+    }
+    if (query.after) {
+        const cursor = query.after;
+        rows = rows.filter((r) => r.id > cursor);
+    }
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const nextCursor = hasMore ? page[page.length - 1].id : null;
+    return { items: page, nextCursor, hasMore };
+}
+/** An in-memory PlayerStore for tests -- not a production adapter. */
+export class InMemoryPlayerStore {
+    rows = new Map();
+    get(id) {
+        return this.rows.get(id) ?? null;
+    }
+    insert(row) {
+        this.rows.set(row.id, row);
+    }
+    update(row) {
+        this.rows.set(row.id, row);
+    }
+    list() {
+        return Array.from(this.rows.values());
+    }
+}
+//# sourceMappingURL=players.js.map

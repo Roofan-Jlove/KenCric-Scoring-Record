@@ -1,0 +1,195 @@
+/**
+ * TASK-0123: `POST /matches/{matchId}/dispute` and `POST /matches/
+ * {matchId}/dispute/adjudicate` (`api-specification.md §11.4`) --
+ * the second task pulled from `§6.3`'s deferred V1/V2/Future list, a
+ * deliberate, flagged priority-scope override (`FR-106` is `Should·P2`
+ * in the SRS, `BR-016` `Must·P2`). Unblocked by `TASK-0122`'s own
+ * schema RCR (`data-specification.md §8.6` `disputes`; a new
+ * `DISPUTED` value on `matches.state`).
+ *
+ * **A real citation collision found, the tenth instance of this
+ * session's own discovery-vs-SRS shape:** `§11.4`'s own Trace cites
+ * `FR-112` -- SRS's own `FR-112` is "Full scorecard," wholly unrelated.
+ * The real entry is SRS `FR-106` ("Dispute lock and adjudication"),
+ * which traces to **discovery** `FR-112` directly (confirmed by
+ * reading `FR-106`'s own Trace line: "discovery FR-112; BR-016;
+ * SM-DISPUTE") -- `§11.4`'s own citation is the discovery-level number,
+ * not SRS's renumbered one, the exact same collision shape found nine
+ * times already this session.
+ *
+ * **A real domain-model tension, already flagged in `TASK-0122`'s own
+ * schema RCR, carried over here:** `domain-model.md`'s `ENT-DISPUTE`
+ * lives entirely under the unbuilt `CTX-COMPETITION` context. This
+ * task follows `§11.4`'s own match-scoped contract instead -- a match
+ * can be disputed with no competition/fixture involved at all.
+ *
+ * **A real, significant scope boundary, flagged rather than silently
+ * assumed:** `§11.4`'s own Lock-response text says "scoring writes to
+ * this match are refused (`409 state/invalid-transition`) until
+ * adjudicated." This task does NOT implement that refusal -- no
+ * backend HTTP write-path for recording a delivery exists anywhere in
+ * `backend/` at all (the real scoring pipeline lives only as pure
+ * Kotlin in `shared/`, never wired to a `backend/` command module in
+ * this entire session). Enforcing the refusal is therefore out of
+ * scope for this task; it belongs to whichever future task builds that
+ * endpoint, which would check `matches.state !== "DISPUTED"` the same
+ * way `validateFrozenFields` already checks other match-state
+ * invariants in `matches.ts`.
+ *
+ * **`TASK-0124` extends this module with `getDispute`/`listDisputes`**
+ * (`GET /disputes/{id}` / `GET /disputes`) -- the one remaining `§6.3`
+ * item with no invented contract at all: `FR-159`'s own Description
+ * text names "view dispute trails" as part of the org-admin console,
+ * and list/get-one is the same mechanical, non-speculative shape every
+ * other `§6.1` resource's own module already uses, applied here to the
+ * `disputes` table rather than ported from a written endpoint spec
+ * (none exists for this specific pair, unlike every prior `§6.1`/`§11`
+ * task) -- the closest this cluster gets to "no invention needed."
+ *
+ * **`TASK-0146` wires in the `audit_log` write this module's own
+ * original doc comment never flagged as missing but `§10.1`'s own
+ * Purpose line explicitly names ("dispute adjudications," and
+ * `system-architecture.md §3.12`'s fuller line names "dispute locks"
+ * too)** -- both `lockMatchForDispute` and `adjudicateDispute` take a
+ * new optional trailing `auditLog` parameter; on success only (never on
+ * a rejection), a `category: "DISPUTE"` row is written, action `"LOCK"`
+ * / `"ADJUDICATE"`, `targetRef` the dispute's own id. Optional and
+ * appended last so every pre-existing call site in
+ * `disputeMatch.test.ts` is untouched.
+ */
+import { businessRuleValidationError, invalidTransitionError, notFoundError, schemaValidationError } from "./errors.js";
+import { writeAuditLogEntry } from "./auditLog.js";
+/** `POST /matches/{matchId}/dispute`. */
+export function lockMatchForDispute(matchId, payload, matchStore, disputeStore, newDisputeId, actorRef, nowIso, instance, auditLog) {
+    if (!payload.reason) {
+        return { outcome: "rejected", problem: schemaValidationError("Missing required field: reason", instance) };
+    }
+    const match = matchStore.get(matchId);
+    if (!match) {
+        return { outcome: "rejected", problem: notFoundError(`No match visible with id ${matchId}`, instance) };
+    }
+    if (match.state === "DISPUTED") {
+        return { outcome: "rejected", problem: invalidTransitionError(`Match ${matchId} is already locked for dispute`, instance) };
+    }
+    if (disputeStore.getOpenByMatchId(matchId)) {
+        return { outcome: "rejected", problem: businessRuleValidationError(`Match ${matchId} already has an open dispute`, instance) };
+    }
+    const disputeRow = {
+        id: newDisputeId,
+        matchId,
+        status: "OPEN",
+        reason: payload.reason,
+        lockedFromState: match.state,
+        lockedBy: actorRef,
+        lockedAt: nowIso,
+        ruling: null,
+        resultingCorrections: null,
+        adjudicatedBy: null,
+        adjudicatedAt: null,
+        rowVersion: 1,
+    };
+    disputeStore.insert(disputeRow);
+    const updatedMatch = { ...match, state: "DISPUTED", rowVersion: match.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
+    matchStore.update(updatedMatch);
+    if (auditLog) {
+        writeAuditLogEntry({ id: auditLog.newId, category: "DISPUTE", actorRef, targetRef: disputeRow.id, action: "LOCK", detail: { matchId }, reason: payload.reason }, auditLog.store, nowIso);
+    }
+    return { outcome: "locked", row: disputeRow };
+}
+/** `POST /matches/{matchId}/dispute/adjudicate`. Unlocks the match back to its pre-lock state. */
+export function adjudicateDispute(matchId, payload, matchStore, disputeStore, actorRef, nowIso, instance, auditLog) {
+    if (!payload.ruling) {
+        return { outcome: "rejected", problem: schemaValidationError("Missing required field: ruling", instance) };
+    }
+    const dispute = disputeStore.getOpenByMatchId(matchId);
+    if (!dispute) {
+        return { outcome: "rejected", problem: notFoundError(`No open dispute visible for match ${matchId}`, instance) };
+    }
+    const match = matchStore.get(matchId);
+    if (!match) {
+        return { outcome: "rejected", problem: notFoundError(`No match visible with id ${matchId}`, instance) };
+    }
+    const updatedDispute = {
+        ...dispute,
+        status: "ADJUDICATED",
+        ruling: payload.ruling,
+        resultingCorrections: payload.resultingCorrections ?? null,
+        adjudicatedBy: actorRef,
+        adjudicatedAt: nowIso,
+        rowVersion: dispute.rowVersion + 1,
+    };
+    disputeStore.update(updatedDispute);
+    const updatedMatch = { ...match, state: dispute.lockedFromState, rowVersion: match.rowVersion + 1, updatedAt: nowIso, updatedBy: actorRef };
+    matchStore.update(updatedMatch);
+    if (auditLog) {
+        writeAuditLogEntry({
+            id: auditLog.newId,
+            category: "DISPUTE",
+            actorRef,
+            targetRef: updatedDispute.id,
+            action: "ADJUDICATE",
+            detail: { matchId, resultingCorrections: updatedDispute.resultingCorrections },
+            reason: payload.ruling,
+        }, auditLog.store, nowIso);
+    }
+    return { outcome: "adjudicated", row: updatedDispute };
+}
+export function getDispute(id, store, instance) {
+    const row = store.get(id);
+    if (!row) {
+        return { outcome: "rejected", problem: notFoundError(`No dispute visible with id ${id}`, instance) };
+    }
+    return { outcome: "found", row };
+}
+/** §6's own defaults: `[DEFAULT] 50`, `[DEFAULT] max 200`. */
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+/**
+ * `GET /disputes`. Keyset-paginated by `id` ascending (§6);
+ * `matchId`/`status` are both the table's own real `IX` columns
+ * (`§8.6`), the same "filter on what the table actually indexes, don't
+ * invent a filter the index doesn't back" reasoning every prior
+ * `§6.1` resource's own `list` function has already used.
+ */
+export function listDisputes(query, store) {
+    const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    let rows = store.list().slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (query.matchId !== undefined && query.matchId !== null) {
+        rows = rows.filter((r) => r.matchId === query.matchId);
+    }
+    if (query.status !== undefined && query.status !== null) {
+        rows = rows.filter((r) => r.status === query.status);
+    }
+    if (query.after) {
+        const cursor = query.after;
+        rows = rows.filter((r) => r.id > cursor);
+    }
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const nextCursor = hasMore ? page[page.length - 1].id : null;
+    return { items: page, nextCursor, hasMore };
+}
+/** An in-memory DisputeStore for tests -- not a production adapter. */
+export class InMemoryDisputeStore {
+    rows = new Map();
+    get(id) {
+        return this.rows.get(id) ?? null;
+    }
+    getOpenByMatchId(matchId) {
+        for (const row of this.rows.values()) {
+            if (row.matchId === matchId && row.status === "OPEN")
+                return row;
+        }
+        return null;
+    }
+    insert(row) {
+        this.rows.set(row.id, row);
+    }
+    update(row) {
+        this.rows.set(row.id, row);
+    }
+    list() {
+        return Array.from(this.rows.values());
+    }
+}
+//# sourceMappingURL=disputeMatch.js.map

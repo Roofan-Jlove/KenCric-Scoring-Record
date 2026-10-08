@@ -16,7 +16,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { requestPersonalDataExportReal } from "../../../../backend/src/commands/accountDataLifecyclePersistence.ts";
+import { requestPersonalDataExportReal } from "../_shared/backend/accountDataLifecyclePersistence.js";
 
 // @ts-expect-error -- Deno global, same reason as sync-events/index.ts.
 Deno.serve(async (req: Request) => {

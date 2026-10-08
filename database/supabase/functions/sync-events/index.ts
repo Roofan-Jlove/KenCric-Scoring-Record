@@ -17,9 +17,10 @@
  * end-to-end.
  *
  * **A real, unresolved integration risk, flagged rather than silently
- * assumed away:** `backend/src/`'s own files use `.js`-extension
- * relative import specifiers (`"../authz/errors.js"`, etc.) -- correct
- * for Node's `NodeNext` module resolution, which is how `tsc`/`vitest`
+ * assumed away:** `backend/src/`'s own files use dot-js-extension
+ * relative import specifiers (e.g. one module importing a sibling
+ * errors module two directories up) -- correct for Node's `NodeNext`
+ * module resolution, which is how `tsc`/`vitest`
  * actually run them in this repository today. Deno's own module
  * resolver does NOT follow a `.js` specifier to a same-named `.ts` file
  * on disk the way Node's does; every transitive import inside
@@ -44,8 +45,8 @@
 // loader, not tsc/Node's; this file is never compiled/run by this
 // repository's own backend/ TypeScript project, only reviewed by hand.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { pushEvents, type PushEventsRequest } from "../../../../backend/src/sync/pushEvents.ts";
-import { hydrateSyncEventsDeps, persistAcceptedEvents } from "../../../../backend/src/sync/syncEventsPersistence.ts";
+import { pushEvents, type PushEventsRequest } from "../_shared/backend/pushEvents.js";
+import { hydrateSyncEventsDeps, persistAcceptedEvents } from "../_shared/backend/syncEventsPersistence.js";
 
 // @ts-expect-error -- Deno's global, not a Node/tsc ambient type in this project.
 Deno.serve(async (req: Request) => {

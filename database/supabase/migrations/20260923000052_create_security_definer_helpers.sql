@@ -31,15 +31,47 @@
 -- elevated privilege). Marked `stable`, not `volatile` -- both read
 -- only, never write, and their result depends only on the current
 -- row/argument values plus `auth.uid()` within one statement.
+--
+-- **`my_orgs()` returns `uuid[]` (a plain array), not `setof uuid` --
+-- edited in place, a deliberate, flagged exception to this backlog's
+-- own forward-only migration convention.** Found only by actually
+-- executing this migration set for the very first time against a
+-- real local Postgres instance (every migration in this schema had
+-- previously only ever been "reviewed by hand, never executed"):
+-- Postgres flatly rejects a set-returning function call inside ANY
+-- RLS policy expression ("set-returning functions are not allowed in
+-- policy expressions", SQLSTATE 0A000) -- the very next migration
+-- (`20260923000053`) fails the instant it tries to `create policy ...
+-- using (... any (public.my_orgs()) ...)`. A forward-patching
+-- migration appended after the fact (tried first, then abandoned)
+-- cannot fix this: migrations apply strictly in sequence, and
+-- `20260923000053` fails and halts the whole run long before any
+-- later migration could ever execute, so the fix MUST land at the
+-- function's own original definition, not after it. This is treated
+-- as a safe exception, not a precedent for routinely rewriting
+-- history: as of this fix, this schema had NEVER been successfully
+-- deployed anywhere, so no real database has ever applied the broken
+-- `setof uuid` version -- there is no live deployment this edit could
+-- retroactively corrupt. `any(array)` has none of `setof`'s
+-- restrictions anywhere in Postgres (policies, views, anywhere) --
+-- every call site (`any (public.my_orgs())`,
+-- `any (public.my_orgs('ORGANIZATION_ADMIN'))`) across
+-- `20260923000053`-`20260923000058` is byte-for-byte unchanged, since
+-- `any()` over an array and `any()` over a set use identical call
+-- syntax; only this function's own return type and body change. The
+-- empty-membership case now correctly yields `array[]::uuid[]` (an
+-- empty array, `any()` over it is always false) rather than a
+-- zero-row set (`any()` over which was ALSO always false) --
+-- behaviourally identical either way.
 
 create or replace function public.my_orgs(required_role text default null)
-returns setof uuid
+returns uuid[]
 language sql
 security definer
 stable
 set search_path = public, pg_temp
 as $$
-  select m.organization_id
+  select coalesce(array_agg(m.organization_id), array[]::uuid[])
   from public.memberships m
   where m.user_id = auth.uid()
     and m.status = 'ACTIVE'
@@ -47,7 +79,7 @@ as $$
 $$;
 
 comment on function public.my_orgs(text) is
-  'SR-B10: the organization_ids the calling user holds an ACTIVE membership in, optionally filtered to only those where they also hold required_role. Replaces the inline exists(select 1 from memberships ...) subquery every pre-TASK-0159 policy writes by hand.';
+  'SR-B10: the organization_ids the calling user holds an ACTIVE membership in, optionally filtered to only those where they also hold required_role. Returns a plain array (not setof) -- a setof-returning function cannot appear in an RLS policy expression (SQLSTATE 0A000), found only by actually executing this schema for the first time. Replaces the inline exists(select 1 from memberships ...) subquery every pre-TASK-0159 policy writes by hand.';
 
 grant execute on function public.my_orgs(text) to authenticated;
 

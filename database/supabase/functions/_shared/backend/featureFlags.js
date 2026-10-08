@@ -1,0 +1,67 @@
+/**
+ * TASK-0132: storage for `feature_flags` (`data-specification.md
+ * §10.2`) -- resolves `FR-160`'s own "feature flags" capability, the
+ * one `UX-28` admin-console piece with an existing UI shell already
+ * built (`AdministrationScreen.tsx`'s own `FEATURE_FLAGS` section,
+ * `TASK-0091`) but no backend persistence wired.
+ *
+ * **This module is the storage layer.** `TASK-0145` wired the first
+ * real gate -- `pushEvents.ts`'s own `DELIVERY_DOMAIN_VALIDATION_BYPASS_FLAG_KEY`
+ * -- directly against this store's `getFeatureFlag`; every other
+ * future gated feature still checks its own flag the same way, not
+ * built here. `AdministrationScreen.tsx`'s own existing `featureFlags`/
+ * `onToggleFeatureFlag` props remain unconnected -- that UI wiring is
+ * still future work, not invented here.
+ *
+ * `key` is plain text, validated only for presence -- no canonical
+ * flag-key list exists anywhere in this corpus, the same "nothing
+ * authoritative to constrain against yet" reasoning
+ * `notificationPreferences.ts`/`userLocalePreferences.ts` already used
+ * for their own unconstrained text columns.
+ *
+ * `Authz: platform-admin` (`FR-160`'s own framing) left to RLS, per
+ * `FA-7` -- the default every `§6.1`/`§11` module except
+ * `signOffMatch` already uses.
+ */
+import { schemaValidationError } from "./errors.js";
+/** `PUT /admin/feature-flags/{key}`. Idempotent upsert -- toggles the flag in place, no `row_version`. */
+export function setFeatureFlag(key, enabled, actorRef, store, nowIso, instance) {
+    if (!key) {
+        return { outcome: "rejected", problem: schemaValidationError("Missing required field: key", instance) };
+    }
+    if (enabled === undefined) {
+        return { outcome: "rejected", problem: schemaValidationError("Missing required field: enabled", instance) };
+    }
+    const row = { key, enabled, updatedAt: nowIso, updatedBy: actorRef };
+    store.upsert(row);
+    return { outcome: "set", row };
+}
+/**
+ * `GET /admin/feature-flags/{key}`. Never `404`s -- a flag that was
+ * never explicitly created defaults to disabled, the safe direction
+ * for an unrecognised feature to default to.
+ */
+export function getFeatureFlag(key, store) {
+    const existing = store.get(key);
+    if (existing)
+        return existing;
+    return { key, enabled: false, updatedAt: "", updatedBy: "" };
+}
+/** `GET /admin/feature-flags`. Every flag that has ever been explicitly set -- no pagination, a bounded-size list by nature. */
+export function listFeatureFlags(store) {
+    return store.list();
+}
+/** An in-memory FeatureFlagStore for tests -- not a production adapter. */
+export class InMemoryFeatureFlagStore {
+    rows = new Map();
+    get(key) {
+        return this.rows.get(key) ?? null;
+    }
+    upsert(row) {
+        this.rows.set(row.key, row);
+    }
+    list() {
+        return Array.from(this.rows.values());
+    }
+}
+//# sourceMappingURL=featureFlags.js.map

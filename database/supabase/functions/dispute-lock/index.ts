@@ -23,7 +23,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { lockMatchForDisputeReal } from "../../../../backend/src/commands/disputeMatchPersistence.ts";
+import { lockMatchForDisputeReal } from "../_shared/backend/disputeMatchPersistence.js";
 
 interface DisputeLockRequestBody {
   reason?: string;

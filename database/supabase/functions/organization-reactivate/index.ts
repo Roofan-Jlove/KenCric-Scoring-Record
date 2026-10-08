@@ -11,7 +11,7 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { reactivateOrganizationReal } from "../../../../backend/src/commands/organizationLifecyclePersistence.ts";
+import { reactivateOrganizationReal } from "../_shared/backend/organizationLifecyclePersistence.js";
 
 // @ts-expect-error -- Deno global, same reason as sync-events/index.ts.
 Deno.serve(async (req: Request) => {

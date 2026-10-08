@@ -43,8 +43,8 @@
 
 // @ts-expect-error -- Deno/npm: specifier, never resolved by this repository's own Node/tsc project.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { signOffMatchReal } from "../../../../backend/src/commands/signOffMatchPersistence.ts";
-import type { ReconciliationCheck } from "../../../../backend/src/commands/signOffMatch.ts";
+import { signOffMatchReal } from "../_shared/backend/signOffMatchPersistence.js";
+import type { ReconciliationCheck } from "../_shared/backend/signOffMatch.js";
 
 interface SignOffRequestBody {
   checks?: readonly ReconciliationCheck[];
