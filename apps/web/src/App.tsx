@@ -285,18 +285,12 @@ function AppShell({ session }: { session: Session }) {
   // wicket/extras recording stay local-only, flagged clearly, since
   // each needs its own payload shape and this proves the pipeline
   // works end to end without building all of them in one pass.
-  async function pushDeliveryEvent(totalRuns: number): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
+  // Shared by every real event type (DELIVERY_RECORDED today; wicket
+  // detail rides inside the same DELIVERY_RECORDED payload shape, per
+  // DeliveryInput.kt -- there is no separate "wicket event" type).
+  async function pushScoringEvent(payload: Record<string, unknown>): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
     if (!scoringSession) return { outcome: "rejected", detail: "No real scoring session is active for this match." };
     const eventId = crypto.randomUUID();
-    const payload = {
-      legality: "LEGAL",
-      strikerBatterId: live.strikerId,
-      nonStrikerBatterId: live.nonStrikerId,
-      bowlerId: live.bowlerId,
-      isFreeHit: false,
-      runEvents: [{ origin: "OFF_BAT", value: totalRuns, method: totalRuns >= 4 ? "BOUNDARY" : "RUN" }],
-      shortRuns: 0,
-    };
     const hash = await computeEventHash(scoringSession.lastHash, eventId, payload);
     const nowIso = new Date().toISOString();
     const event = {
@@ -331,6 +325,45 @@ function AppShell({ session }: { session: Session }) {
     }
     setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash } : s));
     return { outcome: "accepted" };
+  }
+
+  function pushDeliveryEvent(totalRuns: number) {
+    return pushScoringEvent({
+      legality: "LEGAL",
+      strikerBatterId: live.strikerId,
+      nonStrikerBatterId: live.nonStrikerId,
+      bowlerId: live.bowlerId,
+      isFreeHit: false,
+      runEvents: [{ origin: "OFF_BAT", value: totalRuns, method: totalRuns >= 4 ? "BOUNDARY" : "RUN" }],
+      shortRuns: 0,
+    });
+  }
+
+  // Real, pre-existing, already-documented limitation, not introduced
+  // here: pushEvents.ts calls validateDelivery with EMPTY_BATTING_CONTEXT
+  // (no real "current XI / already batted / not out" plumbing exists
+  // anywhere in this backend) -- V8 rejects ANY wicket naming a specific
+  // incomingBatterId, since an empty set can never contain one. This
+  // means a real wicket submission will currently always be REJECTED
+  // unless the dismissal ends the innings (incomingBatterId null) or
+  // the already-built `delivery-domain-validation-bypass` feature flag
+  // is enabled -- that flag has no client-writable grant (deliberately,
+  // "never a raw client-writable RLS policy") and no Edge Function sets
+  // it either, so flipping it is a one-time operator/Studio action, not
+  // something this app's own code does. Wired through anyway, exactly
+  // like Ball Entry, so the real rejection (not a fake success) is what
+  // actually surfaces.
+  function pushWicketEvent(detail: { mode: string; outBatterId: string; endVacated: string; fielderIds: string[]; crossedBeforeDismissal: boolean | null; incomingBatterId: string | null }) {
+    return pushScoringEvent({
+      legality: "LEGAL",
+      strikerBatterId: live.strikerId,
+      nonStrikerBatterId: live.nonStrikerId,
+      bowlerId: live.bowlerId,
+      isFreeHit: false,
+      runEvents: [],
+      shortRuns: 0,
+      wicket: detail,
+    });
   }
 
   async function reloadRealTeams() {
@@ -629,24 +662,45 @@ function AppShell({ session }: { session: Session }) {
         );
       case "UX-12":
         return (
-          <WicketEntryScreen
-            legality="LEGAL"
-            isFreeHit={false}
-            strikerId="striker-1"
-            battingXiNotOut={battingXi.length > 0 ? battingXi : [{ id: "striker-1", name: live.strikerName }]}
-            fieldingXi={fieldingXi.length > 0 ? fieldingXi : [{ id: "f1", name: live.bowlerName }]}
-            endsInnings={false}
-            onConfirm={() => {
-              setLive((l) => ({
-                ...l,
-                wickets: l.wickets + 1,
-                legalBallsBowled: l.legalBallsBowled + 1,
-                lastBallAnnouncement: `Wicket! ${l.runs} for ${l.wickets + 1}.`,
-              }));
-              backToHub();
-            }}
-            onCancel={backToHub}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real wicket was rejected: {deliveryError}
+              </p>
+            )}
+            <WicketEntryScreen
+              legality="LEGAL"
+              isFreeHit={false}
+              strikerId={live.strikerId}
+              battingXiNotOut={battingXi.length > 0 ? battingXi : [{ id: live.strikerId, name: live.strikerName }]}
+              fieldingXi={fieldingXi.length > 0 ? fieldingXi : [{ id: live.bowlerId, name: live.bowlerName }]}
+              endsInnings={false}
+              onConfirm={(detail) => {
+                setDeliveryError(null);
+                pushWicketEvent({
+                  mode: detail.mode!,
+                  outBatterId: detail.outBatterId!,
+                  endVacated: detail.endVacated!,
+                  fielderIds: detail.fielderIds,
+                  crossedBeforeDismissal: detail.crossedBeforeDismissal,
+                  incomingBatterId: detail.incomingBatterId,
+                }).then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  setLive((l) => ({
+                    ...l,
+                    wickets: l.wickets + 1,
+                    legalBallsBowled: l.legalBallsBowled + 1,
+                    lastBallAnnouncement: `Wicket! ${l.runs} for ${l.wickets + 1}.`,
+                  }));
+                  backToHub();
+                });
+              }}
+              onCancel={backToHub}
+            />
+          </>
         );
       case "UX-13":
         return <ExtrasScreen enabledTypes={extrasEnabledTypes} onConfirm={backToHub} onCancel={backToHub} />;
