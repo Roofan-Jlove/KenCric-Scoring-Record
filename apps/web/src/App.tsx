@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 
 import { AuthGate } from "./core/AuthGate";
 import { supabase } from "./core/supabaseClient";
+import { computeEventHash, newScoringSession, type ScoringSession } from "./core/eventChain";
 import { CreateMatchScreen } from "./screens/UX-04-create-match/CreateMatchScreen";
 import type { DraftMatch } from "./screens/UX-04-create-match/createMatchForm";
 import { MatchSetupScreen } from "./screens/UX-05-match-setup/MatchSetupScreen";
@@ -88,6 +89,13 @@ interface LiveState {
   strikerName: string;
   nonStrikerName: string;
   bowlerName: string;
+  // Real player ids, needed to build a real DELIVERY_RECORDED payload --
+  // "p1"/"p2"/"p3" stand-ins when this hub is reached via a demo shortcut
+  // rather than the real UX-04..09 setup flow (e.g. Match History's own
+  // "Open Match" action), which carries no real XI with it.
+  strikerId: string;
+  nonStrikerId: string;
+  bowlerId: string;
   runs: number;
   wickets: number;
   legalBallsBowled: number;
@@ -104,6 +112,9 @@ const defaultLiveState: LiveState = {
   strikerName: "Alice",
   nonStrikerName: "Bea",
   bowlerName: "Cara",
+  strikerId: "p1",
+  nonStrikerId: "p2",
+  bowlerId: "p3",
   runs: 0,
   wickets: 0,
   legalBallsBowled: 0,
@@ -232,6 +243,95 @@ function AppShell({ session }: { session: Session }) {
   const [matchSaveError, setMatchSaveError] = useState<string | null>(null);
   const [matchSaving, setMatchSaving] = useState(false);
   const [realMatchId, setRealMatchId] = useState<string | null>(null);
+  const [scoringSession, setScoringSession] = useState<ScoringSession | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+
+  // The minimum real scoring pathway: let the match's own creator
+  // become its own Head Scorer. No "invite a scorer" flow exists
+  // anywhere in this backlog -- this is deliberately narrow self-
+  // assignment, not a general role-grant mechanism. Reuses an existing
+  // officials row for this user if one was already created (e.g. by an
+  // earlier match), rather than minting a fresh one every time.
+  async function ensureScorerAssignment(matchId: string) {
+    let officialId: string;
+    const { data: existing, error: findError } = await supabase
+      .from("officials")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .limit(1)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (existing) {
+      officialId = existing.id;
+    } else {
+      const { data: created, error: createError } = await supabase
+        .from("officials")
+        .insert({ id: crypto.randomUUID(), user_id: session.user.id, name: session.user.email ?? "Scorer", created_by: session.user.id })
+        .select("id")
+        .single();
+      if (createError) throw createError;
+      officialId = created.id;
+    }
+    const { error: assignError } = await supabase
+      .from("match_officials")
+      .insert({ match_id: matchId, official_id: officialId, role: "HEAD_SCORER", created_by: session.user.id });
+    if (assignError) throw assignError;
+  }
+
+  // Pushes one real DELIVERY_RECORDED event through the real POST
+  // /sync/events pipeline (database/supabase/functions/sync-events) --
+  // see core/eventChain.ts for the hash-chain convention this invents.
+  // Only Ball Entry's own plain-runs action is wired to this for now;
+  // wicket/extras recording stay local-only, flagged clearly, since
+  // each needs its own payload shape and this proves the pipeline
+  // works end to end without building all of them in one pass.
+  async function pushDeliveryEvent(totalRuns: number): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
+    if (!scoringSession) return { outcome: "rejected", detail: "No real scoring session is active for this match." };
+    const eventId = crypto.randomUUID();
+    const payload = {
+      legality: "LEGAL",
+      strikerBatterId: live.strikerId,
+      nonStrikerBatterId: live.nonStrikerId,
+      bowlerId: live.bowlerId,
+      isFreeHit: false,
+      runEvents: [{ origin: "OFF_BAT", value: totalRuns, method: totalRuns >= 4 ? "BOUNDARY" : "RUN" }],
+      shortRuns: 0,
+    };
+    const hash = await computeEventHash(scoringSession.lastHash, eventId, payload);
+    const nowIso = new Date().toISOString();
+    const event = {
+      eventId,
+      streamId: scoringSession.scorerStreamId,
+      deviceId: scoringSession.deviceId,
+      deviceSeq: scoringSession.nextDeviceSeq,
+      prevHash: scoringSession.lastHash,
+      hash,
+      type: "DELIVERY_RECORDED",
+      eventVersion: 1,
+      hlc: `${nowIso}-${scoringSession.nextDeviceSeq}`,
+      eventOrdinal: scoringSession.nextDeviceSeq,
+      actorRef: session.user.id,
+      provenance: { app: "kencric-web-gallery" },
+      recordedAt: nowIso,
+      payload,
+    };
+    const { data, error } = await supabase.functions.invoke("sync-events", {
+      body: {
+        matchId: scoringSession.matchId,
+        scorerStreamId: scoringSession.scorerStreamId,
+        deviceId: scoringSession.deviceId,
+        fenceValue: scoringSession.fenceValue,
+        events: [event],
+      },
+    });
+    if (error) return { outcome: "rejected", detail: error.message };
+    const result = data.results?.[0];
+    if (result?.outcome !== "ACCEPTED") {
+      return { outcome: "rejected", detail: result?.errorDetail ?? "Unknown rejection" };
+    }
+    setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash } : s));
+    return { outcome: "accepted" };
+  }
 
   async function reloadRealTeams() {
     setTeamsLoading(true);
@@ -322,6 +422,8 @@ function AppShell({ session }: { session: Session }) {
     setLive(defaultLiveState);
     setReturnTo(null);
     setRealMatchId(null);
+    setScoringSession(null);
+    setDeliveryError(null);
     setMatchSaveError(null);
   }
 
@@ -447,15 +549,20 @@ function AppShell({ session }: { session: Session }) {
                 setMatchSaveError(null);
                 setMatchSaving(true);
                 createRealMatch()
-                  .then((id) => {
+                  .then(async (id) => {
+                    await ensureScorerAssignment(id);
                     setLive({
                       ...defaultLiveState,
                       strikerName: striker?.name ?? defaultLiveState.strikerName,
                       nonStrikerName: nonStriker?.name ?? defaultLiveState.nonStrikerName,
                       bowlerName: bowler?.name ?? defaultLiveState.bowlerName,
+                      strikerId: state.strikerId ?? defaultLiveState.strikerId,
+                      nonStrikerId: state.nonStrikerId ?? defaultLiveState.nonStrikerId,
+                      bowlerId: state.bowlerId ?? defaultLiveState.bowlerId,
                       totalBallsAllotted: (matchSetup?.oversAllotted ?? 20) * 6,
                     });
                     setRealMatchId(id);
+                    setScoringSession(newScoringSession(id));
                     setScreen("UX-10");
                   })
                   .catch((err) => setMatchSaveError(err instanceof Error ? err.message : String(err)))
@@ -488,23 +595,37 @@ function AppShell({ session }: { session: Session }) {
         );
       case "UX-11":
         return (
-          <BallEntryScreen
-            isFreeHit={false}
-            isGuardrailModalOpen={false}
-            justRecorded={false}
-            undoAvailable={live.legalBallsBowled > 0}
-            overthrowConfirmThreshold={4}
-            onSubmit={(totalRuns) => {
-              setLive((l) => ({
-                ...l,
-                runs: l.runs + totalRuns,
-                legalBallsBowled: l.legalBallsBowled + 1,
-                lastBallAnnouncement: `${totalRuns} run${totalRuns === 1 ? "" : "s"}. ${l.runs + totalRuns} for ${l.wickets}.`,
-              }));
-              backToHub();
-            }}
-            onUndo={backToHub}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real delivery was rejected: {deliveryError}
+              </p>
+            )}
+            <BallEntryScreen
+              isFreeHit={false}
+              isGuardrailModalOpen={false}
+              justRecorded={false}
+              undoAvailable={live.legalBallsBowled > 0}
+              overthrowConfirmThreshold={4}
+              onSubmit={(totalRuns) => {
+                setDeliveryError(null);
+                pushDeliveryEvent(totalRuns).then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  setLive((l) => ({
+                    ...l,
+                    runs: l.runs + totalRuns,
+                    legalBallsBowled: l.legalBallsBowled + 1,
+                    lastBallAnnouncement: `${totalRuns} run${totalRuns === 1 ? "" : "s"}. ${l.runs + totalRuns} for ${l.wickets}.`,
+                  }));
+                  backToHub();
+                });
+              }}
+              onUndo={backToHub}
+            />
+          </>
         );
       case "UX-12":
         return (
