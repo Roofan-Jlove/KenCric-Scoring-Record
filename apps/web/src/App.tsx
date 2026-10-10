@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { AuthGate } from "./core/AuthGate";
 import { supabase } from "./core/supabaseClient";
 import { computeEventHash, newScoringSession, type ScoringSession } from "./core/eventChain";
+import { fetchRealMatchEvents, foldBallByBall, foldScorecard, type FoldedInnings } from "./core/matchEventsFold";
 import { CreateMatchScreen } from "./screens/UX-04-create-match/CreateMatchScreen";
 import type { DraftMatch } from "./screens/UX-04-create-match/createMatchForm";
 import { MatchSetupScreen } from "./screens/UX-05-match-setup/MatchSetupScreen";
@@ -180,9 +181,6 @@ async function fetchRealMatchHistory(): Promise<MatchSummary[]> {
   }));
 }
 const extrasEnabledTypes = new Set<ExtraType>(["WIDE", "NO_BALL", "BYE", "LEG_BYE", "PENALTY"]);
-const ballByBallDeliveries: Delivery[] = [
-  { id: "d1", overNumber: 1, ballInOver: 1, bowlerName: "Smith", strikerName: "Jones", runs: 4, isBoundary: true, wicketDescription: null, extraDescription: null, bowlerId: "b1", strikerId: "s1", phase: "POWERPLAY" },
-];
 
 const topNav: { screen: Screen; label: string }[] = [
   { screen: "UX-26", label: "Match History" },
@@ -245,6 +243,43 @@ function AppShell({ session }: { session: Session }) {
   const [realMatchId, setRealMatchId] = useState<string | null>(null);
   const [scoringSession, setScoringSession] = useState<ScoringSession | null>(null);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [realFoldedDeliveries, setRealFoldedDeliveries] = useState<ReturnType<typeof foldBallByBall>>([]);
+  const [realInnings, setRealInnings] = useState<FoldedInnings | null>(null);
+  const [foldLoading, setFoldLoading] = useState(false);
+  const [foldError, setFoldError] = useState<string | null>(null);
+
+  // Real player names are resolved only from what this session already
+  // knows (the current live hub's own striker/non-striker/bowler, plus
+  // the real XI picked in UX-07) -- there is no players-table lookup
+  // wired anywhere in this app; an id with no known name just shows
+  // the id itself, flagged rather than invented.
+  function playerNameById(id: string): string {
+    if (id === live.strikerId) return live.strikerName;
+    if (id === live.nonStrikerId) return live.nonStrikerName;
+    if (id === live.bowlerId) return live.bowlerName;
+    const fromXi = [...battingXi, ...fieldingXi].find((p) => p.id === id);
+    return fromXi?.name ?? id;
+  }
+
+  async function reloadRealMatchEvents() {
+    if (!realMatchId) return;
+    setFoldLoading(true);
+    setFoldError(null);
+    try {
+      const events = await fetchRealMatchEvents(realMatchId);
+      setRealFoldedDeliveries(foldBallByBall(events, live.ballsPerOver));
+      setRealInnings(foldScorecard(events));
+    } catch (err) {
+      setFoldError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFoldLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (screen === "UX-20" || screen === "UX-21") reloadRealMatchEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
 
   // The minimum real scoring pathway: let the match's own creator
   // become its own Head Scorer. No "invite a scorer" flow exists
@@ -465,6 +500,21 @@ function AppShell({ session }: { session: Session }) {
   // DELIVERY_VOIDED), so no BattingContext-style gap here.
   function pushStrikerOverrideEvent(newStrikerBatterId: string, newNonStrikerBatterId: string, reason: string) {
     return pushScoringEvent({ newStrikerBatterId, newNonStrikerBatterId, reason }, { type: "STRIKER_OVERRIDDEN" });
+  }
+
+  // Pause/resume has no dedicated event type anywhere in this backlog
+  // (confirmed: no pauseMatch.ts/resumeMatch.ts command, no EVT-* type
+  // in MatchEvent.kt) -- `matches.state` is "the only authoritative
+  // store of current lifecycle state" (data-specification.md §5.1,
+  // read directly) and already includes PAUSED as a real, valid
+  // value. A direct UPDATE, not an event -- already covered by the
+  // real matches_update RLS policy (the assigned scorer, or the
+  // creator for a personal match), no new grant needed. The pause
+  // reason (PauseRecord.reason) has no backing column anywhere on
+  // matches -- stays local-only, flagged, not invented a place to put.
+  async function updateRealMatchState(matchId: string, state: string) {
+    const { error } = await supabase.from("matches").update({ state }).eq("id", matchId);
+    if (error) throw error;
   }
 
   async function reloadRealTeams() {
@@ -910,32 +960,129 @@ function AppShell({ session }: { session: Session }) {
           </>
         );
       case "UX-19":
-        return <MatchPauseControl onPaused={() => {}} onResumed={backToHub} />;
-      case "UX-20":
         return (
-          <ScorecardScreen
-            battingOrder={demoBattingOrder(live)}
-            bowlingLines={demoBowlingLines(live)}
-            inningsState={{ totalRuns: live.runs, byes: live.extras.byes, legByes: live.extras.legByes, wides: live.extras.wides, noBalls: live.extras.noBalls, penalty: live.extras.penalties, wicketsLost: live.wickets, legalBallsBowled: live.legalBallsBowled }}
-            ballsPerOver={live.ballsPerOver}
-            partnerships={[]}
-            fallOfWickets={[]}
-            result="In progress"
-            reconciliationStatus="PENDING"
-            isFinal={false}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real match-state update was rejected: {deliveryError}
+              </p>
+            )}
+            <MatchPauseControl
+              onPaused={() => {
+                if (!realMatchId) return;
+                setDeliveryError(null);
+                updateRealMatchState(realMatchId, "PAUSED").catch((err) =>
+                  setDeliveryError(err instanceof Error ? err.message : String(err)),
+                );
+              }}
+              onResumed={() => {
+                if (!realMatchId) {
+                  backToHub();
+                  return;
+                }
+                setDeliveryError(null);
+                updateRealMatchState(realMatchId, "IN_PROGRESS")
+                  .then(backToHub)
+                  .catch((err) => setDeliveryError(err instanceof Error ? err.message : String(err)));
+              }}
+            />
+          </>
         );
-      case "UX-21":
+      case "UX-20": {
+        // Real fold, not demo data -- see core/matchEventsFold.ts's own
+        // header comment for exactly what is and isn't modelled
+        // (no partnerships/fall-of-wickets/maidens; status is OUT only
+        // for a batter a real wicket named, everyone else NOT_OUT even
+        // if they never actually batted -- a real, flagged
+        // simplification, since "never batted" needs a full XI/order
+        // model this fold doesn't build).
+        const innings = realInnings;
         return (
-          <BallByBallScreen
-            deliveries={ballByBallDeliveries}
-            bowlerOptions={[{ id: "b1", name: live.bowlerName }]}
-            batterOptions={[{ id: "s1", name: live.strikerName }]}
-            hasUserScrolledUp={false}
-            onSelectDelivery={() => {}}
-            onJumpToDelivery={() => {}}
-          />
+          <>
+            {foldError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Could not load the real scorecard: {foldError}
+              </p>
+            )}
+            {foldLoading && <p>Loading real scorecard...</p>}
+            <ScorecardScreen
+              battingOrder={(innings?.battingLines ?? []).map((l) => ({
+                playerId: l.playerId,
+                playerName: playerNameById(l.playerId),
+                line: { playerId: l.playerId, runs: l.runs, ballsFaced: l.ballsFaced, fours: l.fours, sixes: l.sixes, status: l.status },
+              }))}
+              bowlingLines={(innings?.bowlingLines ?? []).map((l) => ({
+                playerId: l.playerId,
+                playerName: playerNameById(l.playerId),
+                legalBallsBowled: l.legalBallsBowled,
+                runsCharged: l.runsCharged,
+                wickets: l.wickets,
+                widesBowled: l.widesBowled,
+                noBallsBowled: l.noBallsBowled,
+                maidens: 0,
+              }))}
+              inningsState={{
+                totalRuns: innings?.totalRuns ?? 0,
+                byes: innings?.byes ?? 0,
+                legByes: innings?.legByes ?? 0,
+                wides: innings?.wides ?? 0,
+                noBalls: innings?.noBalls ?? 0,
+                penalty: innings?.penalty ?? 0,
+                wicketsLost: innings?.wicketsLost ?? 0,
+                legalBallsBowled: innings?.legalBallsBowled ?? 0,
+              }}
+              ballsPerOver={live.ballsPerOver}
+              partnerships={[]}
+              fallOfWickets={[]}
+              result="In progress"
+              reconciliationStatus="PENDING"
+              isFinal={false}
+            />
+          </>
         );
+      }
+      case "UX-21": {
+        const ids = new Set<string>();
+        for (const d of realFoldedDeliveries) {
+          ids.add(d.bowlerId);
+          ids.add(d.strikerId);
+        }
+        const options = Array.from(ids).map((id) => ({ id, name: playerNameById(id) }));
+        return (
+          <>
+            {foldError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Could not load real ball-by-ball: {foldError}
+              </p>
+            )}
+            {foldLoading && <p>Loading real ball-by-ball...</p>}
+            <BallByBallScreen
+              deliveries={realFoldedDeliveries.map((d) => ({
+                id: d.id,
+                overNumber: d.overNumber,
+                ballInOver: d.ballInOver,
+                bowlerName: playerNameById(d.bowlerId),
+                strikerName: playerNameById(d.strikerId),
+                runs: d.runs,
+                isBoundary: d.isBoundary,
+                wicketDescription: d.wicketDescription,
+                extraDescription: d.extraDescription,
+                bowlerId: d.bowlerId,
+                strikerId: d.strikerId,
+                // Powerplay/middle/death boundaries are not computed by
+                // this fold (see matchEventsFold.ts's own header) --
+                // every delivery shows as MIDDLE, a flagged stand-in.
+                phase: "MIDDLE",
+              }))}
+              bowlerOptions={options}
+              batterOptions={options}
+              hasUserScrolledUp={false}
+              onSelectDelivery={() => {}}
+              onJumpToDelivery={() => {}}
+            />
+          </>
+        );
+      }
       case "UX-22":
         return (
           <MatchSummaryScreen
@@ -1116,17 +1263,4 @@ function AppShell({ session }: { session: Session }) {
 
 export function App() {
   return <AuthGate>{(session) => <AppShell session={session} />}</AuthGate>;
-}
-
-function demoBattingOrder(live: LiveState): BattingOrderEntry[] {
-  return [
-    { playerId: "striker", playerName: live.strikerName, line: { playerId: "striker", runs: Math.ceil(live.runs / 2), ballsFaced: Math.max(1, Math.ceil(live.legalBallsBowled / 2)), fours: 0, sixes: 0, status: "NOT_OUT" } },
-    { playerId: "non-striker", playerName: live.nonStrikerName, line: { playerId: "non-striker", runs: Math.floor(live.runs / 2), ballsFaced: Math.max(0, Math.floor(live.legalBallsBowled / 2)), fours: 0, sixes: 0, status: "NOT_OUT" } },
-  ];
-}
-
-function demoBowlingLines(live: LiveState) {
-  return [
-    { playerId: "bowler", playerName: live.bowlerName, legalBallsBowled: live.legalBallsBowled, runsCharged: live.runs, wickets: live.wickets, widesBowled: live.extras.wides, noBallsBowled: live.extras.noBalls, maidens: 0 },
-  ];
 }
