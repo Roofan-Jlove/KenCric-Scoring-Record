@@ -155,7 +155,6 @@ const overCompletionSummary: OverSummary = {
 const scoreCorrectionCascade: CascadeSummary = { orphanedDeliveryCount: 2, requiresContinuation: false, firstStrikeContinuityBreakIndex: null };
 const matchSummaryChecks: ReconciliationCheck[] = [{ invariantId: "INV-001", status: "PASS", detail: null }];
 const syncStatusOutcomes: PushEventOutcome[] = [];
-const adminMembers: AdminMember[] = [{ id: "m1", name: "Alex", roles: ["HEAD_SCORER"] }];
 
 // Real read, via PostgREST + RLS -- not demo data. matches.state's own real
 // enum (SCHEDULED/READY/IN_PROGRESS/INNINGS_BREAK/PAUSED/COMPLETE/ABANDONED)
@@ -234,6 +233,11 @@ function AppShell({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  useEffect(() => {
+    if (screen === "UX-28") reloadRealAdminState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
   const [realTeams, setRealTeams] = useState<Team[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
@@ -247,6 +251,37 @@ function AppShell({ session }: { session: Session }) {
   const [realInnings, setRealInnings] = useState<FoldedInnings | null>(null);
   const [foldLoading, setFoldLoading] = useState(false);
   const [foldError, setFoldError] = useState<string | null>(null);
+
+  // UX-27 Settings: none of these six have ANY server-side concept
+  // anywhere in this backlog (dateFormat/matchTimeZone -- the real
+  // `user_locale_preferences` table stores only `locale`, a different
+  // field entirely, not a date-format string or an IANA zone; the four
+  // toggles and the two storage numbers have no table at all) -- kept
+  // as plain local UI state, flagged rather than silently backed by a
+  // table that doesn't actually model them.
+  const [dateFormat, setDateFormat] = useState("DD/MM/YYYY");
+  const [matchTimeZone, setMatchTimeZone] = useState("Europe/London");
+  const [highContrastEnabled, setHighContrastEnabled] = useState(false);
+  const [sunlightModeEnabled, setSunlightModeEnabled] = useState(false);
+  const [confirmationsEnabled, setConfirmationsEnabled] = useState(true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+
+  // UX-28 Administration: real membership state for the signed-in user.
+  // `ORGANIZATION_ADMIN`/`PLATFORM_ADMIN` are the real role tokens this
+  // backend actually uses everywhere (confirmed via
+  // `20260923000041_memberships_roles_check.sql` and every RLS policy
+  // built on `my_orgs()`) -- NOT the UI form's own `OrgRole` type
+  // (`administrationForm.ts`'s `"ORG_ADMIN" | "HEAD_SCORER" | ...`),
+  // which is a real, pre-existing naming mismatch flagged here rather
+  // than silently reconciled by renaming either side.
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [adminOrgId, setAdminOrgId] = useState<string | null>(null);
+  const [realAdminMembers, setRealAdminMembers] = useState<AdminMember[]>([]);
+  const [realFeatureFlags, setRealFeatureFlags] = useState<{ key: string; enabled: boolean }[]>([]);
+  const [realReferenceVersions, setRealReferenceVersions] = useState<string[]>([]);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
 
   // Real player names are resolved only from what this session already
   // knows (the current live hub's own striker/non-striker/bowler, plus
@@ -554,6 +589,171 @@ function AppShell({ session }: { session: Session }) {
     } catch (err) {
       return { outcome: "rejected", detail: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  // UX-28 Administration: real `memberships` lookup for the signed-in
+  // user. Empty for this test account (no organization has ever been
+  // created anywhere in this app's own real backend this session) --
+  // that is the HONEST real answer, not a placeholder.
+  async function reloadRealAdminState() {
+    const { data: mine, error } = await supabase
+      .from("memberships")
+      .select("organization_id,roles")
+      .eq("user_id", session.user.id)
+      .eq("status", "ACTIVE");
+    if (error) {
+      setAdminActionError(error.message);
+      return;
+    }
+    const rows = mine ?? [];
+    const orgAdminRow = rows.find((r) => (r.roles as string[]).includes("ORGANIZATION_ADMIN"));
+    const platformAdmin = rows.some((r) => (r.roles as string[]).includes("PLATFORM_ADMIN"));
+    setIsOrgAdmin(Boolean(orgAdminRow));
+    setIsPlatformAdmin(platformAdmin);
+    setAdminOrgId(orgAdminRow ? (orgAdminRow.organization_id as string) : null);
+
+    if (orgAdminRow) {
+      const { data: members, error: membersError } = await supabase
+        .from("memberships")
+        .select("id,user_id,roles,users(display_name)")
+        .eq("organization_id", orgAdminRow.organization_id)
+        .eq("status", "ACTIVE");
+      if (membersError) {
+        setAdminActionError(membersError.message);
+      } else {
+        // `roles` here are the real DB tokens (ORGANIZATION_ADMIN,
+        // HEAD_SCORER, ...) cast through the UI's own OrgRole type --
+        // a real, flagged mismatch (e.g. ORGANIZATION_ADMIN vs the
+        // form's ORG_ADMIN), not a silent rename on either side.
+        setRealAdminMembers(
+          (members ?? []).map((m) => ({
+            id: m.id as string,
+            name: ((m.users as unknown as { display_name: string } | null)?.display_name) ?? (m.user_id as string),
+            roles: m.roles as AdminMember["roles"],
+          })),
+        );
+      }
+    } else {
+      setRealAdminMembers([]);
+    }
+
+    if (platformAdmin) {
+      const { data: flags } = await supabase.from("feature_flags").select("key,enabled");
+      setRealFeatureFlags(flags ?? []);
+      const { data: refRows } = await supabase
+        .from("reference_data")
+        .select("version")
+        .eq("kind", "APP_CONFIG")
+        .order("version", { ascending: true });
+      setRealReferenceVersions((refRows ?? []).map((r) => `v${r.version}`));
+    } else {
+      setRealFeatureFlags([]);
+      setRealReferenceVersions([]);
+    }
+  }
+
+  // `feature_flags` genuinely has NO write path anywhere in this
+  // backend -- confirmed directly via curl: RLS is enabled with only a
+  // SELECT policy (`feature_flags_select`), by the migration's own
+  // design ("writable only through the backend command handler...
+  // never a raw client-writable RLS policy"), and no Edge Function
+  // anywhere exposes that command handler over HTTP. This attempts
+  // the real write and surfaces the real rejection rather than faking
+  // success.
+  async function onToggleFeatureFlagReal(key: string) {
+    const flag = realFeatureFlags.find((f) => f.key === key);
+    if (!flag) return;
+    const { error } = await supabase.from("feature_flags").update({ enabled: !flag.enabled }).eq("key", key);
+    if (error) {
+      setAdminActionError(`Feature flag toggle rejected (no write path exists for this table by design): ${error.message}`);
+    } else {
+      setRealFeatureFlags((flags) => flags.map((f) => (f.key === key ? { ...f, enabled: !f.enabled } : f)));
+    }
+  }
+
+  // `reference_data` is kind-partitioned (CONDITIONS_PROFILE/DLS_TABLE/
+  // APP_CONFIG with an integer version per kind) in the real schema,
+  // not the flat "v1","v2"... list this screen's own `administrationForm.ts`
+  // models -- scoped to the APP_CONFIG kind only, flagged rather than
+  // silently fitting the mismatch.
+  async function onPublishReferenceDataReal(newVersionId: string) {
+    const version = Number(newVersionId.replace(/^v/, ""));
+    const { error } = await supabase
+      .from("reference_data")
+      .insert({ kind: "APP_CONFIG", version, payload: {}, published_by: session.user.id });
+    if (error) {
+      setAdminActionError(error.message);
+    } else {
+      setRealReferenceVersions((versions) => [...versions, newVersionId]);
+    }
+  }
+
+  async function onInviteMemberReal(email: string, role: string) {
+    if (!adminOrgId) {
+      setAdminActionError("No real organization exists for this account to invite into.");
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke(`invite-member/organizations/${adminOrgId}/invitations`, {
+      method: "POST",
+      body: { email, roles: [role], expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
+    });
+    if (error) setAdminActionError(error.message);
+    else if (data?.type) setAdminActionError(data.detail ?? "Invite rejected");
+  }
+
+  async function onDeactivateMemberReal(membershipId: string) {
+    if (!adminOrgId) {
+      setAdminActionError("No real organization exists for this account.");
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke(
+      `deactivate-member/organizations/${adminOrgId}/memberships/${membershipId}/deactivate`,
+      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: {} },
+    );
+    if (error) setAdminActionError(error.message);
+    else if (data?.type) setAdminActionError(data.detail ?? "Deactivate rejected");
+    else setRealAdminMembers((members) => members.filter((m) => m.id !== membershipId));
+  }
+
+  // GoTrue's own `auth.updateUser({ password })` never verifies the
+  // caller's CURRENT password -- it just sets a new one for an already
+  // -authenticated session. `currentPassword` is verified for real
+  // here by re-authenticating with it first (a genuine old-password
+  // check), only calling `updateUser` if that succeeds.
+  async function onChangePasswordReal(currentPassword: string, newPassword: string) {
+    setPasswordChangeError(null);
+    const { error: reauthError } = await supabase.auth.signInWithPassword({
+      email: session.user.email ?? "",
+      password: currentPassword,
+    });
+    if (reauthError) {
+      setPasswordChangeError("Current password is incorrect.");
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) setPasswordChangeError(error.message);
+  }
+
+  async function onExportPersonalDataReal() {
+    const { data, error } = await supabase.functions.invoke("request-personal-data-export", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    });
+    if (error) setAdminActionError(error.message);
+    else if (data?.type) setAdminActionError(data.detail ?? "Export request rejected");
+  }
+
+  // No polling counterpart exists anywhere in this backend -- per the
+  // Edge Function's own doc comment, completion is communicated by
+  // email, so this app has nothing further to show after the real
+  // `202 PROCESSING` response.
+  async function onDeleteAccountReal() {
+    const { data, error } = await supabase.functions.invoke("request-account-deletion", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    });
+    if (error) setAdminActionError(error.message);
+    else if (data?.type) setAdminActionError(data.detail ?? "Deletion request rejected");
   }
 
   async function reloadRealTeams() {
@@ -1210,53 +1410,68 @@ function AppShell({ session }: { session: Session }) {
         );
       case "UX-27":
         return (
-          <SettingsScreen
-            dateFormat="DD/MM/YYYY"
-            matchTimeZone="Europe/London"
-            onChangeDateFormat={() => {}}
-            onChangeMatchTimeZone={() => {}}
-            highContrastEnabled={false}
-            onToggleHighContrast={() => {}}
-            sunlightModeEnabled={false}
-            onToggleSunlightMode={() => {}}
-            confirmationsEnabled={true}
-            onToggleConfirmations={() => {}}
-            hapticsEnabled={true}
-            onToggleHaptics={() => {}}
-            storageUsedBytes={100}
-            storageTotalBytes={1000}
-            onPurgeStorage={() => {}}
-            onChangePassword={() => {}}
-            onExportPersonalData={() => {}}
-            onDeleteAccount={() => {}}
-            onSignOut={() => {
-              resetFlowState();
-              setScreen("UX-26");
-            }}
-            isOffline={false}
-          />
+          <>
+            {(passwordChangeError || adminActionError) && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                {passwordChangeError ?? adminActionError}
+              </p>
+            )}
+            <SettingsScreen
+              dateFormat={dateFormat}
+              matchTimeZone={matchTimeZone}
+              onChangeDateFormat={setDateFormat}
+              onChangeMatchTimeZone={setMatchTimeZone}
+              highContrastEnabled={highContrastEnabled}
+              onToggleHighContrast={() => setHighContrastEnabled((v) => !v)}
+              sunlightModeEnabled={sunlightModeEnabled}
+              onToggleSunlightMode={() => setSunlightModeEnabled((v) => !v)}
+              confirmationsEnabled={confirmationsEnabled}
+              onToggleConfirmations={() => setConfirmationsEnabled((v) => !v)}
+              hapticsEnabled={hapticsEnabled}
+              onToggleHaptics={() => setHapticsEnabled((v) => !v)}
+              storageUsedBytes={100}
+              storageTotalBytes={1000}
+              onPurgeStorage={() => {}}
+              onChangePassword={onChangePasswordReal}
+              onExportPersonalData={onExportPersonalDataReal}
+              onDeleteAccount={onDeleteAccountReal}
+              onSignOut={() => {
+                supabase.auth.signOut();
+                resetFlowState();
+                setScreen("UX-26");
+              }}
+              isOffline={false}
+            />
+          </>
         );
       case "UX-28":
         return (
-          <AdministrationScreen
-            isOrgAdmin={true}
-            isPlatformAdmin={false}
-            activeImpersonation={null}
-            onEndImpersonation={() => {}}
-            members={adminMembers}
-            onInviteMember={() => {}}
-            onChangeRoles={() => {}}
-            onDeactivateMember={() => {}}
-            featureFlags={[]}
-            onToggleFeatureFlag={() => {}}
-            referenceDataVersions={["v1"]}
-            onPublishReferenceData={() => {}}
-            impersonationConsents={{}}
-            onStartImpersonation={() => {}}
-            currentAdminId="admin-1"
-            now="2026-09-28T00:00:00Z"
-            isOffline={false}
-          />
+          <>
+            {adminActionError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                {adminActionError}
+              </p>
+            )}
+            <AdministrationScreen
+              isOrgAdmin={isOrgAdmin}
+              isPlatformAdmin={isPlatformAdmin}
+              activeImpersonation={null}
+              onEndImpersonation={() => {}}
+              members={realAdminMembers}
+              onInviteMember={onInviteMemberReal}
+              onChangeRoles={() => setAdminActionError("No backend path exists anywhere in this project for changing a member's roles directly (no Edge Function, no write grant on memberships).")}
+              onDeactivateMember={onDeactivateMemberReal}
+              featureFlags={realFeatureFlags}
+              onToggleFeatureFlag={onToggleFeatureFlagReal}
+              referenceDataVersions={realReferenceVersions}
+              onPublishReferenceData={onPublishReferenceDataReal}
+              impersonationConsents={{}}
+              onStartImpersonation={() => {}}
+              currentAdminId={session.user.id}
+              now={new Date().toISOString()}
+              isOffline={false}
+            />
+          </>
         );
     }
   }
