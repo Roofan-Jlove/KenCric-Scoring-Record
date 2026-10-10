@@ -140,11 +140,7 @@ function xiPlayers(side: SideXiState) {
 }
 
 // Static demo data for screens not reachable from the real per-match flow
-// (no over-boundary/bowler-change engine, no conflict/sync simulation).
-const bowlerChangeCandidates: BowlerCandidate[] = [
-  { id: "b1", name: "J. Smith", legalBallsBowled: 18, runsCharged: 18, wickets: 1, maidens: 0 },
-  { id: "b2", name: "R. Jones", legalBallsBowled: 0, runsCharged: 0, wickets: 0, maidens: 0 },
-];
+// (no over-boundary engine, no conflict/sync simulation).
 const overCompletionSummary: OverSummary = {
   overNumber: 4,
   runsConceded: 7,
@@ -296,6 +292,27 @@ function AppShell({ session }: { session: Session }) {
     return fromXi?.name ?? id;
   }
 
+  // UX-15 Bowler Change: real fielding-XI candidates, with real figures
+  // from the real folded innings (`matchEventsFold.ts`) where a real
+  // match has events, zero otherwise (a bowler who hasn't bowled yet).
+  // `maidens` has no real source anywhere -- `foldScorecard` itself
+  // doesn't compute it (a documented simplification, not an oversight)
+  // -- always 0 here, flagged rather than invented.
+  function realBowlerCandidates(): BowlerCandidate[] {
+    const pool = fieldingXi.length > 0 ? fieldingXi : [{ id: live.bowlerId, name: live.bowlerName }];
+    return pool.map((p) => {
+      const stats = realInnings?.bowlingLines.find((b) => b.playerId === p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        legalBallsBowled: stats?.legalBallsBowled ?? 0,
+        runsCharged: stats?.runsCharged ?? 0,
+        wickets: stats?.wickets ?? 0,
+        maidens: 0,
+      };
+    });
+  }
+
   async function reloadRealMatchEvents() {
     if (!realMatchId) return;
     setFoldLoading(true);
@@ -312,7 +329,7 @@ function AppShell({ session }: { session: Session }) {
   }
 
   useEffect(() => {
-    if (screen === "UX-20" || screen === "UX-21") reloadRealMatchEvents();
+    if (screen === "UX-20" || screen === "UX-21" || screen === "UX-15") reloadRealMatchEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
@@ -1157,12 +1174,20 @@ function AppShell({ session }: { session: Session }) {
       case "UX-15":
         return (
           <BowlerChangeScreen
-            candidates={bowlerChangeCandidates}
-            previousOverBowlerId="b1"
-            bowlerOverCap={4}
-            ballsPerOver={6}
+            candidates={realBowlerCandidates()}
+            previousOverBowlerId={live.bowlerId}
+            // No cap is ever configured anywhere in this app's real
+            // backend -- TASK-0065's own Inputs text calls "no cap
+            // configured" a valid state, not a gap to fill with an
+            // invented formula.
+            bowlerOverCap={null}
+            ballsPerOver={live.ballsPerOver}
             isAuthorisedToOverride={true}
-            onConfirm={backToHub}
+            onConfirm={(candidateId) => {
+              const next = realBowlerCandidates().find((c) => c.id === candidateId);
+              setLive((l) => ({ ...l, bowlerId: candidateId, bowlerName: next?.name ?? candidateId }));
+              backToHub();
+            }}
           />
         );
       case "UX-16":
