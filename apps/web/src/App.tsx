@@ -288,7 +288,10 @@ function AppShell({ session }: { session: Session }) {
   // Shared by every real event type (DELIVERY_RECORDED today; wicket
   // detail rides inside the same DELIVERY_RECORDED payload shape, per
   // DeliveryInput.kt -- there is no separate "wicket event" type).
-  async function pushScoringEvent(payload: Record<string, unknown>): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
+  async function pushScoringEvent(
+    payload: Record<string, unknown>,
+    options?: { type?: string; voids?: string },
+  ): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
     if (!scoringSession) return { outcome: "rejected", detail: "No real scoring session is active for this match." };
     const eventId = crypto.randomUUID();
     const hash = await computeEventHash(scoringSession.lastHash, eventId, payload);
@@ -300,13 +303,14 @@ function AppShell({ session }: { session: Session }) {
       deviceSeq: scoringSession.nextDeviceSeq,
       prevHash: scoringSession.lastHash,
       hash,
-      type: "DELIVERY_RECORDED",
+      type: options?.type ?? "DELIVERY_RECORDED",
       eventVersion: 1,
       hlc: `${nowIso}-${scoringSession.nextDeviceSeq}`,
       eventOrdinal: scoringSession.nextDeviceSeq,
       actorRef: session.user.id,
       provenance: { app: "kencric-web-gallery" },
       recordedAt: nowIso,
+      voids: options?.voids ?? null,
       payload,
     };
     const { data, error } = await supabase.functions.invoke("sync-events", {
@@ -323,7 +327,7 @@ function AppShell({ session }: { session: Session }) {
     if (result?.outcome !== "ACCEPTED") {
       return { outcome: "rejected", detail: result?.errorDetail ?? "Unknown rejection" };
     }
-    setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash } : s));
+    setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash, lastEventId: eventId } : s));
     return { outcome: "accepted" };
   }
 
@@ -364,6 +368,103 @@ function AppShell({ session }: { session: Session }) {
       shortRuns: 0,
       wicket: detail,
     });
+  }
+
+  // Builds the exact RunEvent list ExtrasDecomposer.kt's own
+  // wideRunEvents/noBallOffBatRunEvents/byeRunEvent/legByeRunEvent/
+  // penaltyRunEvent construct (shared/.../pipeline/ExtrasDecomposer.kt,
+  // read directly before building this, not guessed) -- this screen's
+  // own single additionalRuns field maps to that module's own
+  // "runsRun"/"value" parameter, the plain (non-boundary-untouched)
+  // case, since this UI collects no separate boundary-vs-run
+  // distinction.
+  //
+  // A REAL, pre-existing inconsistency found while wiring this, not
+  // introduced here: wideRunEvents()'s own base case constructs
+  // RunEvent(WIDE, 1, AUTOMATIC) -- but deliveryValidator.ts's own V2
+  // (isValidOriginMethodPair, transcribed directly from RunEvent.kt)
+  // only allows AUTOMATIC for NO_BALL_PENALTY/PENALTY, never WIDE.
+  // A real WIDE submission will therefore ALWAYS be rejected by V2
+  // ("(WIDE, AUTOMATIC) is not a valid pair"), regardless of
+  // additionalRuns, surfaced here deliberately rather than silently
+  // inventing a different method value that would contradict the
+  // Kotlin source's own already-tested construction.
+  function pushExtraEvent(state: { type: string | null; additionalRuns: number; penaltyRecipientSide: "BATTING" | "BOWLING" | null }) {
+    const boundaryMethod = (v: number) => (v >= 4 ? "BOUNDARY" : "RUN");
+    let legality: string = "LEGAL";
+    let runEvents: Record<string, unknown>[] = [];
+    if (state.type === "WIDE") {
+      legality = "WIDE";
+      runEvents =
+        state.additionalRuns > 0
+          ? [
+              { origin: "WIDE", value: 1, method: "AUTOMATIC" },
+              { origin: "WIDE", value: state.additionalRuns, method: "RUN" },
+            ]
+          : [{ origin: "WIDE", value: 1, method: "AUTOMATIC" }];
+    } else if (state.type === "NO_BALL") {
+      legality = "NO_BALL";
+      runEvents =
+        state.additionalRuns > 0
+          ? [
+              { origin: "NO_BALL_PENALTY", value: 1, method: "AUTOMATIC" },
+              { origin: "NO_BALL_BAT", value: state.additionalRuns, method: boundaryMethod(state.additionalRuns) },
+            ]
+          : [{ origin: "NO_BALL_PENALTY", value: 1, method: "AUTOMATIC" }];
+    } else if (state.type === "BYE") {
+      runEvents = [{ origin: "BYE", value: state.additionalRuns, method: boundaryMethod(state.additionalRuns) }];
+    } else if (state.type === "LEG_BYE") {
+      runEvents = [{ origin: "LEG_BYE", value: state.additionalRuns, method: boundaryMethod(state.additionalRuns) }];
+    } else if (state.type === "PENALTY") {
+      const battingIsA = toss?.order.battingFirst === "A";
+      const battingTeamId = battingIsA ? teamSelection?.teamA?.id : teamSelection?.teamB?.id;
+      const fieldingTeamId = battingIsA ? teamSelection?.teamB?.id : teamSelection?.teamA?.id;
+      const awardedToTeamId = state.penaltyRecipientSide === "BATTING" ? battingTeamId : fieldingTeamId;
+      // BR-036: always value=5, regardless of this screen's own
+      // additionalRuns field -- ExtrasDecomposer.kt's own
+      // penaltyRunEvent() takes no runs parameter at all.
+      runEvents = [{ origin: "PENALTY", value: 5, method: "AUTOMATIC", awardedToTeamId: awardedToTeamId ?? null }];
+    }
+    return pushScoringEvent({
+      legality,
+      strikerBatterId: live.strikerId,
+      nonStrikerBatterId: live.nonStrikerId,
+      bowlerId: live.bowlerId,
+      isFreeHit: false,
+      runEvents,
+      shortRuns: 0,
+    });
+  }
+
+  // Real Undo: `live-scoring.md §18.1`'s own "undo voids this event;
+  // refold restores..." language, confirmed directly before building --
+  // NOT a new delivery, a DELIVERY_VOIDED event whose `voids` field
+  // names the event being reversed. Unlike DELIVERY_RECORDED, this type
+  // has no V1-V11 validator at all (confirmed in pushEvents.ts's own
+  // doc comment: "PLAYING_CONDITIONS_FROZEN/DELIVERY_VOIDED have no
+  // V1-V11 validator of their own"), so it skips straight to the
+  // sequence/hash-chain/insert step -- no BattingContext-style gap to
+  // hit here, unlike wicket/wide recording.
+  function pushUndoEvent() {
+    if (!scoringSession?.lastEventId) {
+      return Promise.resolve({ outcome: "rejected" as const, detail: "No real event has been recorded yet for this match." });
+    }
+    return pushScoringEvent({}, { type: "DELIVERY_VOIDED", voids: scoringSession.lastEventId });
+  }
+
+  // `live-scoring.md §16.4`/`specs/events/striker-overridden/v1.schema.json`
+  // (`TASK-0142`'s own formal transcription of `MatchEvent.kt`'s
+  // `StrikerOverridden`) -- independent of any delivery, its own event
+  // type. The JSON Schema file nests the type-specific fields under an
+  // "event" key with an "eventType" discriminator; the REAL runtime
+  // wire contract this session has already proven working (flat
+  // `payload`, top-level `type`) does not match that nesting -- trusted
+  // over the schema file, since it's the actual code path, not a
+  // parallel formalisation that may have drifted from it. No V1-V11
+  // validator exists for this type either (same category as
+  // DELIVERY_VOIDED), so no BattingContext-style gap here.
+  function pushStrikerOverrideEvent(newStrikerBatterId: string, newNonStrikerBatterId: string, reason: string) {
+    return pushScoringEvent({ newStrikerBatterId, newNonStrikerBatterId, reason }, { type: "STRIKER_OVERRIDDEN" });
   }
 
   async function reloadRealTeams() {
@@ -703,18 +804,66 @@ function AppShell({ session }: { session: Session }) {
           </>
         );
       case "UX-13":
-        return <ExtrasScreen enabledTypes={extrasEnabledTypes} onConfirm={backToHub} onCancel={backToHub} />;
+        return (
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real extra was rejected: {deliveryError}
+              </p>
+            )}
+            <ExtrasScreen
+              enabledTypes={extrasEnabledTypes}
+              onConfirm={(state) => {
+                setDeliveryError(null);
+                pushExtraEvent(state).then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  setLive((l) => ({
+                    ...l,
+                    runs: l.runs + state.additionalRuns,
+                    legalBallsBowled: l.legalBallsBowled + (state.type === "BYE" || state.type === "LEG_BYE" ? 1 : 0),
+                    lastBallAnnouncement: `${state.type} extra. ${l.runs + state.additionalRuns} for ${l.wickets}.`,
+                  }));
+                  backToHub();
+                });
+              }}
+              onCancel={backToHub}
+            />
+          </>
+        );
       case "UX-14":
         return (
-          <StrikeChangeScreen
-            striker={{ id: "striker", name: live.strikerName }}
-            nonStriker={{ id: "non-striker", name: live.nonStrikerName }}
-            readOnly={false}
-            onOverrideConfirmed={() => {
-              setLive((l) => ({ ...l, strikerName: l.nonStrikerName, nonStrikerName: l.strikerName }));
-              backToHub();
-            }}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real strike override was rejected: {deliveryError}
+              </p>
+            )}
+            <StrikeChangeScreen
+              striker={{ id: live.strikerId, name: live.strikerName }}
+              nonStriker={{ id: live.nonStrikerId, name: live.nonStrikerName }}
+              readOnly={false}
+              onOverrideConfirmed={(positions, reason) => {
+                setDeliveryError(null);
+                pushStrikerOverrideEvent(positions.strikerId, positions.nonStrikerId, reason).then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  setLive((l) => ({
+                    ...l,
+                    strikerName: l.nonStrikerName,
+                    nonStrikerName: l.strikerName,
+                    strikerId: l.nonStrikerId,
+                    nonStrikerId: l.strikerId,
+                  }));
+                  backToHub();
+                });
+              }}
+            />
+          </>
         );
       case "UX-15":
         return (
@@ -733,18 +882,32 @@ function AppShell({ session }: { session: Session }) {
         return <ScoreCorrectionScreen cascadeSummary={scoreCorrectionCascade} isFinal={false} hasElevatedRole={false} onSave={backToHub} onCancel={backToHub} />;
       case "UX-18":
         return (
-          <UndoRedoControl
-            hasRecentAction={live.legalBallsBowled > 0}
-            isGuardrailModalOpen={false}
-            canFullyReverse={true}
-            mostRecentActionLabel={live.lastBallAnnouncement}
-            onUndoApplied={() => {
-              setLive((l) => ({ ...l, legalBallsBowled: Math.max(0, l.legalBallsBowled - 1) }));
-              backToHub();
-            }}
-            onRedoApplied={backToHub}
-            onRouteToCorrection={() => setScreen("UX-17")}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real undo was rejected: {deliveryError}
+              </p>
+            )}
+            <UndoRedoControl
+              hasRecentAction={live.legalBallsBowled > 0}
+              isGuardrailModalOpen={false}
+              canFullyReverse={true}
+              mostRecentActionLabel={live.lastBallAnnouncement}
+              onUndoApplied={() => {
+                setDeliveryError(null);
+                pushUndoEvent().then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  setLive((l) => ({ ...l, legalBallsBowled: Math.max(0, l.legalBallsBowled - 1) }));
+                  backToHub();
+                });
+              }}
+              onRedoApplied={backToHub}
+              onRouteToCorrection={() => setScreen("UX-17")}
+            />
+          </>
         );
       case "UX-19":
         return <MatchPauseControl onPaused={() => {}} onResumed={backToHub} />;

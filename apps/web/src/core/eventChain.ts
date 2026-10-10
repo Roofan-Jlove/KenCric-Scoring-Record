@@ -35,6 +35,13 @@ export interface ScoringSession {
   fenceValue: string;
   nextDeviceSeq: number;
   lastHash: string;
+  // The most recently ACCEPTED event's own id -- needed for Undo's
+  // real representation, a DELIVERY_VOIDED event whose `voids` field
+  // names the event being reversed (live-scoring.md §18.1's own
+  // "undo voids this event; refold restores..." language, confirmed
+  // directly before building Undo's own wiring). Null until the first
+  // real event of the innings is accepted.
+  lastEventId: string | null;
 }
 
 export function newScoringSession(matchId: string): ScoringSession {
@@ -48,5 +55,6 @@ export function newScoringSession(matchId: string): ScoringSession {
     fenceValue: crypto.randomUUID(),
     nextDeviceSeq: 0,
     lastHash: GENESIS_HASH,
+    lastEventId: null,
   };
 }
