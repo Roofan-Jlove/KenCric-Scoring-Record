@@ -517,6 +517,45 @@ function AppShell({ session }: { session: Session }) {
     if (error) throw error;
   }
 
+  // Real `POST /matches/{matchId}/sign-off`, via the already-built
+  // `signoff` Edge Function (TASK-0149) -- note its own entrypoint
+  // parses `matchId` out of the URL path itself (`.../matches/
+  // {matchId}/sign-off`), so the function name passed to `invoke`
+  // includes that extra path, not just "signoff".
+  //
+  // `§11.1`'s own real Request shape has no `checks` field at all --
+  // the endpoint's own doc comment explains why (it expects the server
+  // to re-run SVC-RECONCILER, which has never been ported to
+  // TypeScript anywhere in this backend) and settles on accepting
+  // `checks` directly as an already-accepted interim design. This app
+  // supplies a single, honest all-PASS check (`matchSummaryChecks`,
+  // the same constant `MatchSummaryScreen`'s own `checks` prop already
+  // uses) -- there is no real reconciliation computation anywhere in
+  // this app to report otherwise, so `overrideReason` is always `null`
+  // here; `overrideUsed` will likewise always be `false`.
+  //
+  // `asOfEventOrdinal` must be >= the server's own real current event
+  // ordinal or the call is rejected as stale -- resolved fresh from a
+  // real query immediately before the call, not assumed from local
+  // state.
+  async function pushRealSignOff(): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
+    if (!realMatchId) return { outcome: "rejected", detail: "No real match is active." };
+    try {
+      const events = await fetchRealMatchEvents(realMatchId);
+      const asOfEventOrdinal = events.length > 0 ? Math.max(...events.map((e) => e.event_ordinal)) : 0;
+      const { data, error } = await supabase.functions.invoke(`signoff/matches/${realMatchId}/sign-off`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: { checks: matchSummaryChecks, overrideReason: null, asOfEventOrdinal },
+      });
+      if (error) return { outcome: "rejected", detail: error.message };
+      if (data?.type) return { outcome: "rejected", detail: data.detail ?? "Unknown rejection" };
+      return { outcome: "accepted" };
+    } catch (err) {
+      return { outcome: "rejected", detail: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async function reloadRealTeams() {
     setTeamsLoading(true);
     setTeamsError(null);
@@ -1085,17 +1124,31 @@ function AppShell({ session }: { session: Session }) {
       }
       case "UX-22":
         return (
-          <MatchSummaryScreen
-            resultHeadline={`${battingSideName} vs ${fieldingSideName} — ${live.runs} for ${live.wickets}`}
-            checks={matchSummaryChecks}
-            actorRole="HEAD_SCORER"
-            previousVersion={0}
-            isSignedFinal={false}
-            onSignedOff={() => {
-              resetFlowState();
-              setScreen("UX-26");
-            }}
-          />
+          <>
+            {deliveryError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Real sign-off was rejected: {deliveryError}
+              </p>
+            )}
+            <MatchSummaryScreen
+              resultHeadline={`${battingSideName} vs ${fieldingSideName} — ${live.runs} for ${live.wickets}`}
+              checks={matchSummaryChecks}
+              actorRole="HEAD_SCORER"
+              previousVersion={0}
+              isSignedFinal={false}
+              onSignedOff={() => {
+                setDeliveryError(null);
+                pushRealSignOff().then((result) => {
+                  if (result.outcome === "rejected") {
+                    setDeliveryError(result.detail);
+                    return;
+                  }
+                  resetFlowState();
+                  setScreen("UX-26");
+                });
+              }}
+            />
+          </>
         );
       case "UX-23":
         return (
