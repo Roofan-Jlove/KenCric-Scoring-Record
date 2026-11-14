@@ -272,6 +272,24 @@ function AppShell({ session }: { session: Session }) {
   const [realReferenceVersions, setRealReferenceVersions] = useState<string[]>([]);
   const [adminActionError, setAdminActionError] = useState<string | null>(null);
 
+  // UX-17 Score Correction: `isFinal`/`hasElevatedRole` are real --
+  // `isFinal` from the real `matches.state` ('COMPLETE' is this
+  // backend's own real terminal state, confirmed via
+  // `20260923000010_create_matches.sql`'s check constraint);
+  // `hasElevatedRole` from the real `officials`/`match_officials` role
+  // resolution, mirroring `signOffMatchPersistence.ts`'s own
+  // `resolveActorRole`/`pickHighestPriorityRole` exactly (HEAD_SCORER
+  // is the one role sign-off itself already treats as elevated -- the
+  // same real precedent this screen's own "elevated role" concept
+  // maps onto). `cascadeSummary` CANNOT be made real: the actual
+  // cascade math lives only in `InningsCorrector.kt`, never ported to
+  // TypeScript (same "no Kotlin<->TypeScript bridge" limitation
+  // `matchEventsFold.ts` already flags for the scorecard fold) -- kept
+  // as the existing flagged demo placeholder, not silently computed.
+  const [isMatchFinal, setIsMatchFinal] = useState(false);
+  const [hasElevatedRole, setHasElevatedRole] = useState(false);
+  const [correctionSaveNotice, setCorrectionSaveNotice] = useState<string | null>(null);
+
   // Real player names are resolved only from what this session already
   // knows (the current live hub's own striker/non-striker/bowler, plus
   // the real XI picked in UX-07) -- there is no players-table lookup
@@ -360,6 +378,11 @@ function AppShell({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  useEffect(() => {
+    if (screen === "UX-17") reloadRealCorrectionGates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
   // The minimum real scoring pathway: let the match's own creator
   // become its own Head Scorer. No "invite a scorer" flow exists
   // anywhere in this backlog -- this is deliberately narrow self-
@@ -390,6 +413,32 @@ function AppShell({ session }: { session: Session }) {
       .from("match_officials")
       .insert({ match_id: matchId, official_id: officialId, role: "HEAD_SCORER", created_by: session.user.id });
     if (assignError) throw assignError;
+  }
+
+  // UX-17: reloads the two genuinely real pieces of Score Correction's
+  // state. No `realMatchId` means no real match is active -- both
+  // honestly resolve false rather than defaulting to the demo values.
+  async function reloadRealCorrectionGates() {
+    if (!realMatchId) {
+      setIsMatchFinal(false);
+      setHasElevatedRole(false);
+      return;
+    }
+    const { data: match } = await supabase.from("matches").select("state").eq("id", realMatchId).maybeSingle();
+    setIsMatchFinal(match?.state === "COMPLETE");
+
+    const { data: officialRows } = await supabase.from("officials").select("id").eq("user_id", session.user.id);
+    const officialIds = (officialRows ?? []).map((r) => r.id as string);
+    if (officialIds.length === 0) {
+      setHasElevatedRole(false);
+      return;
+    }
+    const { data: moRows } = await supabase
+      .from("match_officials")
+      .select("role")
+      .eq("match_id", realMatchId)
+      .in("official_id", officialIds);
+    setHasElevatedRole((moRows ?? []).some((r) => r.role === "HEAD_SCORER"));
   }
 
   // Pushes one real DELIVERY_RECORDED event through the real POST
@@ -1227,7 +1276,27 @@ function AppShell({ session }: { session: Session }) {
           />
         );
       case "UX-17":
-        return <ScoreCorrectionScreen cascadeSummary={scoreCorrectionCascade} isFinal={false} hasElevatedRole={false} onSave={backToHub} onCancel={backToHub} />;
+        return (
+          <>
+            {correctionSaveNotice && <p role="status">{correctionSaveNotice}</p>}
+            <ScoreCorrectionScreen
+              cascadeSummary={scoreCorrectionCascade}
+              isFinal={isMatchFinal}
+              hasElevatedRole={hasElevatedRole}
+              onSave={() => {
+                // No real correction event type or cascade-application
+                // path exists anywhere in this backend (see the state
+                // declaration's own comment) -- surfaced honestly
+                // rather than faking a real save.
+                setCorrectionSaveNotice("This correction was not actually saved -- no real correction event type or cascade-application path exists anywhere in this backend yet.");
+              }}
+              onCancel={() => {
+                setCorrectionSaveNotice(null);
+                backToHub();
+              }}
+            />
+          </>
+        );
       case "UX-18":
         return (
           <>
