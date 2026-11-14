@@ -140,14 +140,7 @@ function xiPlayers(side: SideXiState) {
 }
 
 // Static demo data for screens not reachable from the real per-match flow
-// (no over-boundary engine, no conflict/sync simulation).
-const overCompletionSummary: OverSummary = {
-  overNumber: 4,
-  runsConceded: 7,
-  wicketsThisOver: 1,
-  isMaiden: false,
-  bowlerFigures: { legalBallsBowled: 20, runsCharged: 18, wickets: 1, maidens: 0 },
-};
+// (no conflict/sync simulation).
 const scoreCorrectionCascade: CascadeSummary = { orphanedDeliveryCount: 2, requiresContinuation: false, firstStrikeContinuityBreakIndex: null };
 const matchSummaryChecks: ReconciliationCheck[] = [{ invariantId: "INV-001", status: "PASS", detail: null }];
 const syncStatusOutcomes: PushEventOutcome[] = [];
@@ -313,6 +306,40 @@ function AppShell({ session }: { session: Session }) {
     });
   }
 
+  // UX-16 Over Completion: the most recently FULLY completed over in
+  // the real match, derived the same way `live.legalBallsBowled`
+  // already groups deliveries into overs (`matchEventsFold.ts`'s own
+  // `foldBallByBall`'s `overNumber` uses the identical legal-ball-count
+  // arithmetic) -- no separate "over complete" event exists anywhere,
+  // so this is computed, not read off a table. `null` before any real
+  // over has finished (the honest real state, not a demo fallback).
+  function realOverSummary(): OverSummary | null {
+    const completedOverNumber = Math.floor(live.legalBallsBowled / live.ballsPerOver);
+    if (completedOverNumber === 0) return null;
+    const overDeliveries = realFoldedDeliveries.filter((d) => d.overNumber === completedOverNumber);
+    if (overDeliveries.length === 0) return null;
+    const bowlerId = overDeliveries[0].bowlerId;
+    const bowlerStats = realInnings?.bowlingLines.find((b) => b.playerId === bowlerId);
+    const runsConceded = overDeliveries.reduce((sum, d) => sum + d.runs, 0);
+    return {
+      overNumber: completedOverNumber,
+      runsConceded,
+      wicketsThisOver: overDeliveries.filter((d) => d.wicketDescription !== null).length,
+      // A real maiden excludes byes/leg-byes from the runs count --
+      // the existing fold has no per-origin breakdown on a delivery
+      // (only a display string), so this can't make that distinction.
+      // Flagged, same limitation as `realBowlerCandidates`' own
+      // `maidens: 0` just above.
+      isMaiden: runsConceded === 0,
+      bowlerFigures: {
+        legalBallsBowled: bowlerStats?.legalBallsBowled ?? 0,
+        runsCharged: bowlerStats?.runsCharged ?? 0,
+        wickets: bowlerStats?.wickets ?? 0,
+        maidens: 0,
+      },
+    };
+  }
+
   async function reloadRealMatchEvents() {
     if (!realMatchId) return;
     setFoldLoading(true);
@@ -329,7 +356,7 @@ function AppShell({ session }: { session: Session }) {
   }
 
   useEffect(() => {
-    if (screen === "UX-20" || screen === "UX-21" || screen === "UX-15") reloadRealMatchEvents();
+    if (screen === "UX-20" || screen === "UX-21" || screen === "UX-15" || screen === "UX-16") reloadRealMatchEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
@@ -1191,7 +1218,14 @@ function AppShell({ session }: { session: Session }) {
           />
         );
       case "UX-16":
-        return <OverCompletionScreen summary={overCompletionSummary} ballsPerOver={6} onAcknowledge={backToHub} onJumpToCorrection={() => setScreen("UX-17")} />;
+        return (
+          <OverCompletionScreen
+            summary={realOverSummary() ?? { overNumber: 0, runsConceded: 0, wicketsThisOver: 0, isMaiden: false, bowlerFigures: { legalBallsBowled: 0, runsCharged: 0, wickets: 0, maidens: 0 } }}
+            ballsPerOver={live.ballsPerOver}
+            onAcknowledge={backToHub}
+            onJumpToCorrection={() => setScreen("UX-17")}
+          />
+        );
       case "UX-17":
         return <ScoreCorrectionScreen cascadeSummary={scoreCorrectionCascade} isFinal={false} hasElevatedRole={false} onSave={backToHub} onCancel={backToHub} />;
       case "UX-18":
