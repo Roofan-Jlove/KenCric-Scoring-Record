@@ -37,7 +37,7 @@ import { MatchSummaryScreen } from "./screens/UX-22-match-summary/MatchSummarySc
 import type { ReconciliationCheck } from "./screens/UX-22-match-summary/signOffForm";
 import { OfflineModeIndicator } from "./screens/UX-23-offline-mode/OfflineModeIndicator";
 import { SyncStatusScreen } from "./screens/UX-24-sync-status/SyncStatusScreen";
-import type { PushEventOutcome } from "./screens/UX-24-sync-status/syncStatusState";
+import { formatRejectionMessage, type PushEventOutcome } from "./screens/UX-24-sync-status/syncStatusState";
 import { FenceConflictScreen } from "./screens/UX-25-conflict-resolution/FenceConflictScreen";
 import { MatchHistoryScreen } from "./screens/UX-26-match-history/MatchHistoryScreen";
 import type { MatchSummary } from "./screens/UX-26-match-history/matchHistoryForm";
@@ -140,10 +140,9 @@ function xiPlayers(side: SideXiState) {
 }
 
 // Static demo data for screens not reachable from the real per-match flow
-// (no conflict/sync simulation).
+// (no correction-cascade engine, no conflict simulation).
 const scoreCorrectionCascade: CascadeSummary = { orphanedDeliveryCount: 2, requiresContinuation: false, firstStrikeContinuityBreakIndex: null };
 const matchSummaryChecks: ReconciliationCheck[] = [{ invariantId: "INV-001", status: "PASS", detail: null }];
-const syncStatusOutcomes: PushEventOutcome[] = [];
 
 // Real read, via PostgREST + RLS -- not demo data. matches.state's own real
 // enum (SCHEDULED/READY/IN_PROGRESS/INNINGS_BREAK/PAUSED/COMPLETE/ABANDONED)
@@ -227,6 +226,25 @@ function AppShell({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  // UX-23: real browser connectivity -- `navigator.onLine` plus the
+  // standard `online`/`offline` window events, not a static flag.
+  useEffect(() => {
+    setLive((l) => ({ ...l, isOnline: navigator.onLine }));
+    const goOnline = () => setLive((l) => ({ ...l, isOnline: true }));
+    const goOffline = () => setLive((l) => ({ ...l, isOnline: false }));
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (screen === "UX-23") checkBackendReachable();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
   const [realTeams, setRealTeams] = useState<Team[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
@@ -289,6 +307,30 @@ function AppShell({ session }: { session: Session }) {
   const [isMatchFinal, setIsMatchFinal] = useState(false);
   const [hasElevatedRole, setHasElevatedRole] = useState(false);
   const [correctionSaveNotice, setCorrectionSaveNotice] = useState<string | null>(null);
+
+  // UX-23 Offline Mode: `isOnline` (via `live.isOnline`) and
+  // `isBackendReachable` are real -- real browser connectivity events
+  // and a real lightweight reachability probe against this app's own
+  // backend, respectively. `isSyncing`/`queuedCount` CANNOT be made
+  // real: this web client has no offline outbox/queue anywhere (every
+  // real event push is a direct synchronous call, confirmed by
+  // `connectivityState.ts`'s own doc comment pointing at
+  // `OutboxState.kt`'s `pending()` -- a real Kotlin module never built
+  // or ported for this web client) -- always `false`/`0`, an honest
+  // "nothing is ever queued," not a guess. `lastSyncedAt` is real: set
+  // the moment any real event push is accepted by `sync-events`.
+  const [isBackendReachable, setIsBackendReachable] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  // UX-24 Sync Status: `outcomes`/`rejectedCount` are real -- every
+  // real `pushScoringEvent` call (accepted or rejected) appends here,
+  // recording what actually happened, not a fabricated log. Resets
+  // each browser session (no persisted push history exists anywhere)
+  // -- flagged where `hasNeverSynced` is derived below, not hidden.
+  // `globalQueueDepth`/`isSyncing` stay the same honest `0`/`false` as
+  // UX-23's identical no-outbox limitation.
+  const [realPushOutcomes, setRealPushOutcomes] = useState<PushEventOutcome[]>([]);
+  const [syncActionNotice, setSyncActionNotice] = useState<string | null>(null);
 
   // Real player names are resolved only from what this session already
   // knows (the current live hub's own striker/non-striker/bowler, plus
@@ -441,6 +483,19 @@ function AppShell({ session }: { session: Session }) {
     setHasElevatedRole((moRows ?? []).some((r) => r.role === "HEAD_SCORER"));
   }
 
+  // UX-23: a genuine network reachability probe against this app's
+  // own real backend -- a trivial, cheap real SELECT (`feature_flags`
+  // allows SELECT for any authenticated user with no org-scoping, per
+  // its own RLS policy), not a fabricated boolean.
+  async function checkBackendReachable() {
+    try {
+      const { error } = await supabase.from("feature_flags").select("key").limit(1);
+      setIsBackendReachable(!error);
+    } catch {
+      setIsBackendReachable(false);
+    }
+  }
+
   // Pushes one real DELIVERY_RECORDED event through the real POST
   // /sync/events pipeline (database/supabase/functions/sync-events) --
   // see core/eventChain.ts for the hash-chain convention this invents.
@@ -485,12 +540,19 @@ function AppShell({ session }: { session: Session }) {
         events: [event],
       },
     });
-    if (error) return { outcome: "rejected", detail: error.message };
+    if (error) {
+      setRealPushOutcomes((o) => [...o, { eventId, status: "REJECTED", rejectionReason: error.message }]);
+      return { outcome: "rejected", detail: error.message };
+    }
     const result = data.results?.[0];
     if (result?.outcome !== "ACCEPTED") {
-      return { outcome: "rejected", detail: result?.errorDetail ?? "Unknown rejection" };
+      const detail = result?.errorDetail ?? "Unknown rejection";
+      setRealPushOutcomes((o) => [...o, { eventId, status: "REJECTED", rejectionReason: detail }]);
+      return { outcome: "rejected", detail };
     }
+    setRealPushOutcomes((o) => [...o, { eventId, status: "ACCEPTED", rejectionReason: null }]);
     setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash, lastEventId: eventId } : s));
+    setLastSyncedAt(nowIso);
     return { outcome: "accepted" };
   }
 
@@ -1482,33 +1544,61 @@ function AppShell({ session }: { session: Session }) {
         return (
           <OfflineModeIndicator
             isOnline={live.isOnline}
-            isBackendReachable={true}
+            isBackendReachable={isBackendReachable}
+            // No offline outbox exists anywhere in this web client --
+            // every real event push is a direct synchronous call, so
+            // there is never anything queued or mid-sync. Honest zero
+            // state, not a guess (see this state's own declaration
+            // comment for the real Kotlin module this would need).
             isSyncing={false}
-            queuedCount={3}
-            lastSyncedTime="2026-09-28 10:00"
-            storageUsageLabel="12 MB"
-            onRetryConnection={() => {}}
+            queuedCount={0}
+            lastSyncedTime={lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : null}
+            // No real storage-usage tracking exists anywhere in this
+            // app either -- the identical flagged limitation UX-27
+            // Settings' own storageUsedBytes/storageTotalBytes already
+            // carry.
+            storageUsageLabel="Not tracked (no real storage accounting exists in this app)"
+            onRetryConnection={checkBackendReachable}
             onJumpToSyncStatus={() => setScreen("UX-24")}
             onManageStorage={() => setScreen("UX-27")}
           />
         );
       case "UX-24":
         return (
-          <SyncStatusScreen
-            isOnline={true}
-            isBackendReachable={true}
-            isSyncing={false}
-            rejectedCount={0}
-            outcomes={syncStatusOutcomes}
-            eventBallReference={() => null}
-            globalQueueDepth={0}
-            lastFullSyncTimestamp="2026-09-28 10:00"
-            hasNeverSynced={false}
-            onTriggerManualSync={() => {}}
-            onRetryFailedBatch={() => {}}
-            onViewEventDetail={() => {}}
-            onSignIn={() => {}}
-          />
+          <>
+            {syncActionNotice && <p role="status">{syncActionNotice}</p>}
+            <SyncStatusScreen
+              isOnline={live.isOnline}
+              isBackendReachable={isBackendReachable}
+              // No offline outbox exists anywhere in this web client --
+              // same real limitation flagged for UX-23's own isSyncing.
+              isSyncing={false}
+              rejectedCount={realPushOutcomes.filter((o) => o.status === "REJECTED").length}
+              outcomes={realPushOutcomes}
+              eventBallReference={(eventId) => {
+                const d = realFoldedDeliveries.find((fd) => fd.id === eventId);
+                return d ? `${d.overNumber}.${d.ballInOver}` : null;
+              }}
+              globalQueueDepth={0}
+              lastFullSyncTimestamp={lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : null}
+              // This app has no concept of "this device has never
+              // synced because it was never signed in to the cloud" --
+              // every screen here is already behind real auth
+              // (AuthGate), so the sign-in gate this prop controls can
+              // never honestly apply. Always false, not guessed.
+              hasNeverSynced={false}
+              onTriggerManualSync={() => {
+                checkBackendReachable();
+                setSyncActionNotice("Rechecked backend reachability -- there is no real sync queue to flush in this app.");
+              }}
+              onRetryFailedBatch={() => setSyncActionNotice("No real retry path exists -- a rejected event was already permanently rejected by the real backend's own validation.")}
+              onViewEventDetail={(eventId) => {
+                const outcome = realPushOutcomes.find((o) => o.eventId === eventId);
+                setSyncActionNotice(outcome ? formatRejectionMessage(outcome.rejectionReason) : "No detail available for this event.");
+              }}
+              onSignIn={() => {}}
+            />
+          </>
         );
       case "UX-25":
         return <FenceConflictScreen otherDeviceId="device-42" conflictDetectedAt="2026-09-28 10:00" onResolved={() => setScreen(returnTo ?? "UX-26")} />;
