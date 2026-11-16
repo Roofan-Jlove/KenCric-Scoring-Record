@@ -47,6 +47,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { pushEvents, type PushEventsRequest } from "../_shared/backend/pushEvents.js";
 import { hydrateSyncEventsDeps, persistAcceptedEvents } from "../_shared/backend/syncEventsPersistence.js";
+import { detectAndPersistRealDivergences } from "../_shared/backend/divergenceDetectorPersistence.js";
 
 // @ts-expect-error -- Deno's global, not a Node/tsc ambient type in this project.
 Deno.serve(async (req: Request) => {
@@ -89,6 +90,15 @@ Deno.serve(async (req: Request) => {
 
   if (request.matchId) {
     await persistAcceptedEvents(client, request.matchId, deps.eventStore, new Date().toISOString());
+    // Best-effort secondary pass -- TASK-0161: the first real wiring of
+    // the previously dead-code `detectAndRecordDivergences` (TASK-0038)
+    // into an actual running pipeline. A failure here must never fail
+    // this response -- the push itself already genuinely succeeded.
+    try {
+      await detectAndPersistRealDivergences(client, request.matchId, request.scorerStreamId);
+    } catch (divergenceError) {
+      console.error("sync-events: divergence detection pass failed (non-fatal)", divergenceError);
+    }
   }
 
   return new Response(JSON.stringify(result.response), { status: 200, headers: { "content-type": "application/json" } });
