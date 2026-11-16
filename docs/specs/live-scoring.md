@@ -190,7 +190,7 @@ Given a delivery's `runEvents` list `R`:
 | `LEG_BYE` | `RUN`, `BOUNDARY`, `OVERTHROW` |
 | `NO_BALL_BYE` | `RUN`, `BOUNDARY`, `OVERTHROW` |
 | `NO_BALL_LEG_BYE` | `RUN`, `BOUNDARY`, `OVERTHROW` |
-| `WIDE` | `RUN`, `BOUNDARY` *(an overthrow on top of a wide is legal but vanishingly rare; permitted — `OVERTHROW` is not excluded, listed here for completeness)* |
+| `WIDE` | `RUN`, `BOUNDARY`, `AUTOMATIC` *(an overthrow on top of a wide is legal but vanishingly rare; permitted — `OVERTHROW` is not excluded, listed here for completeness. `AUTOMATIC` added as a genuine correction, not an original design choice — this row originally omitted it, directly contradicting §7.6's own worked example below ("a plain wide with no boundary... is one `RunEvent(origin=WIDE, value=1, method=AUTOMATIC)`"), which is correct: a wide's mandatory 1-run is an automatic award regardless of whether the batters ran, the same category as a no-ball penalty, not a batter-run for strike-rotation purposes. Confirmed against real cricket rules and against `ExtrasDecomposer.kt`'s own already-built, already-correct `wideRunEvents()`, which this table's own omission had been incorrectly flagging as invalid.)* |
 | `NO_BALL_PENALTY` | `AUTOMATIC` only — always `value = 1` |
 | `PENALTY` | `AUTOMATIC` only — always `value = 5` (`[LAW]`, `BR-036`) |
 

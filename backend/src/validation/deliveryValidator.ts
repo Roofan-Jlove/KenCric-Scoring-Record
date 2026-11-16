@@ -71,10 +71,28 @@ export interface RunEvent {
   awardedToTeamId?: string | null;
 }
 
-/** `live-scoring.md §7.3`'s valid `(origin, method)` table -- transcribed from `RunEvent.kt`'s own `isValidOriginMethodPair`. */
+/**
+ * `live-scoring.md §7.3`'s valid `(origin, method)` table -- transcribed
+ * from `RunEvent.kt`'s own `isValidOriginMethodPair`.
+ *
+ * `WIDE`/`AUTOMATIC` is a real, deliberate correction, not an original
+ * design choice -- `§7.3`'s own table originally omitted it, directly
+ * contradicting `§7.6`'s own worked example ("a plain wide with no
+ * boundary... is one `RunEvent(origin=WIDE, value=1, method=AUTOMATIC)`"),
+ * which is the correct rule: a wide's mandatory 1-run is an automatic
+ * award regardless of whether the batters ran, the same category as a
+ * no-ball penalty, never a batter-run for strike-rotation purposes.
+ * Found while wiring this app's own real WIDE extras recording end to
+ * end -- every real WIDE submission was being rejected by this exact
+ * gap. `RunEvent.kt` (the authoritative Kotlin source this file ports)
+ * carries the identical fix.
+ */
 export function isValidOriginMethodPair(origin: RunEventOrigin, method: RunEventMethod): boolean {
   if (origin === RunEventOrigin.NO_BALL_PENALTY || origin === RunEventOrigin.PENALTY) {
     return method === RunEventMethod.AUTOMATIC;
+  }
+  if (origin === RunEventOrigin.WIDE) {
+    return method === RunEventMethod.RUN || method === RunEventMethod.BOUNDARY || method === RunEventMethod.OVERTHROW || method === RunEventMethod.AUTOMATIC;
   }
   return method === RunEventMethod.RUN || method === RunEventMethod.BOUNDARY || method === RunEventMethod.OVERTHROW;
 }

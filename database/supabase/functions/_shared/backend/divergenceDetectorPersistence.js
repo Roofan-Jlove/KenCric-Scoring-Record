@@ -45,7 +45,16 @@ function toStreamRecords(rows) {
     const payload = row.payload ?? {};
     const runEvents = payload.runEvents ?? [];
     const runs = runEvents.reduce((sum, e) => sum + (e.value ?? 0), 0);
-    const wicketMode = payload.wicket?.mode ?? null;
+    // `false`, never a bare JS `null` -- a real bug found by actual
+    // execution: PostgREST maps a top-level JSON `null` request-body
+    // value to SQL NULL for ANY column type, including jsonb, with no
+    // way to instead store the JSON null literal through a normal
+    // INSERT body. `divergences.value_a`/`value_b` are `jsonb NOT
+    // NULL`, so a genuinely-absent wicket (one side has no wicket,
+    // the other does) crashed the insert outright. `false` is an
+    // internal-only sentinel for "no wicket" -- never compared against
+    // or surfaced outside this module's own field-comparison use.
+    const wicketMode = payload.wicket?.mode ?? false;
     return { overBall: String(index), fields: { runs, wicketMode } };
   });
 }

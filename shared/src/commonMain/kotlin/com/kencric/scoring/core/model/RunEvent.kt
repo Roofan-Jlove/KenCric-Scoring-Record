@@ -35,13 +35,22 @@ data class RunEvent(
 /**
  * live-scoring.md §7.3's valid (origin, method) table. Any pairing not
  * covered here fails V2. NO_BALL_PENALTY/PENALTY are AUTOMATIC-only;
- * every other origin (including WIDE, per §7.3's own clarifying note)
- * allows RUN/BOUNDARY/OVERTHROW.
+ * WIDE allows RUN/BOUNDARY/OVERTHROW *plus* AUTOMATIC (a real
+ * correction -- §7.3's own table originally omitted AUTOMATIC for
+ * WIDE, contradicting §7.6's own worked example of the mandatory
+ * 1-run wide: "RunEvent(origin=WIDE, value=1, method=AUTOMATIC)",
+ * which ExtrasDecomposer.kt's own wideRunEvents() already builds
+ * correctly). Every other origin allows RUN/BOUNDARY/OVERTHROW only.
  */
 fun isValidOriginMethodPair(origin: RunEventOrigin, method: RunEventMethod): Boolean =
     when (origin) {
         RunEventOrigin.NO_BALL_PENALTY, RunEventOrigin.PENALTY ->
             method == RunEventMethod.AUTOMATIC
+        RunEventOrigin.WIDE ->
+            method == RunEventMethod.RUN ||
+                method == RunEventMethod.BOUNDARY ||
+                method == RunEventMethod.OVERTHROW ||
+                method == RunEventMethod.AUTOMATIC
         else ->
             method == RunEventMethod.RUN ||
                 method == RunEventMethod.BOUNDARY ||

@@ -952,8 +952,17 @@ function AppShell({ session }: { session: Session }) {
         origin_device_id: crypto.randomUUID(),
         home_team_id: teamSelection.teamA.id,
         away_team_id: teamSelection.teamB.id,
-        home_xi: xi?.sideA ?? null,
-        away_xi: xi?.sideB ?? null,
+        // A real, pre-existing mismatch found while wiring the real
+        // V8 batting-context gap: this previously stored the WHOLE
+        // SideXiState object (captain/keeper/squad/selectedIds), not
+        // the plain player-id array `battingContext.ts`'s own
+        // `resolveBattingXi` expects (the convention it explicitly
+        // established, reusing `playingXiForm.ts`'s own
+        // `selectedIds: string[]` shape) -- `Array.isArray` on the
+        // whole object always failed, silently forcing every real
+        // delivery into the EMPTY_BATTING_CONTEXT fallback forever.
+        home_xi: xi?.sideA?.selectedIds ?? null,
+        away_xi: xi?.sideB?.selectedIds ?? null,
         format,
         overs_allotted: matchSetup?.oversAllotted ?? null,
         conditions_profile: {},

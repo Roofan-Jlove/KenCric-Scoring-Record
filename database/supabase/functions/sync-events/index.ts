@@ -48,6 +48,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { pushEvents, type PushEventsRequest } from "../_shared/backend/pushEvents.js";
 import { hydrateSyncEventsDeps, persistAcceptedEvents } from "../_shared/backend/syncEventsPersistence.js";
 import { detectAndPersistRealDivergences } from "../_shared/backend/divergenceDetectorPersistence.js";
+import { hydrateBattingContextDeps } from "../_shared/backend/battingContextPersistence.js";
 
 // @ts-expect-error -- Deno's global, not a Node/tsc ambient type in this project.
 Deno.serve(async (req: Request) => {
@@ -82,7 +83,24 @@ Deno.serve(async (req: Request) => {
   }
 
   const deps = await hydrateSyncEventsDeps(client, request, userId);
-  const result = pushEvents(request, userId, deps.eventStore, deps.fenceStore, deps.officialStore, deps.matchOfficialStore, instance, deps.featureFlagStore);
+
+  // Real wiring for V8's "named incoming batter" gap (previously
+  // always EMPTY_BATTING_CONTEXT, confirmed by reading this file
+  // directly before touching it -- battingContextDeps was never
+  // passed to pushEvents() at all). Only the first event's own
+  // strikerBatterId is used to hydrate it -- every real call through
+  // this app's own pushScoringEvent sends exactly one event per
+  // batch, so this covers all real usage; a future multi-event batch
+  // with different strikers would still validate correctly for its
+  // own first event's batting side, since both XIs are read together
+  // regardless of which one is picked to resolve battingTeamId.
+  const firstEvent = request.events?.[0];
+  const battingContextDeps =
+    request.matchId && firstEvent?.type === "DELIVERY_RECORDED" && typeof firstEvent.payload?.strikerBatterId === "string"
+      ? await hydrateBattingContextDeps(client, request.matchId, firstEvent.payload.strikerBatterId)
+      : undefined;
+
+  const result = pushEvents(request, userId, deps.eventStore, deps.fenceStore, deps.officialStore, deps.matchOfficialStore, instance, deps.featureFlagStore, battingContextDeps);
 
   if (result.outcome === "rejected") {
     return new Response(JSON.stringify(result.problem), { status: result.problem.status, headers: { "content-type": "application/problem+json" } });
