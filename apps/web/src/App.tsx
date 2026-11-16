@@ -39,6 +39,8 @@ import { OfflineModeIndicator } from "./screens/UX-23-offline-mode/OfflineModeIn
 import { SyncStatusScreen } from "./screens/UX-24-sync-status/SyncStatusScreen";
 import { formatRejectionMessage, type PushEventOutcome } from "./screens/UX-24-sync-status/syncStatusState";
 import { FenceConflictScreen } from "./screens/UX-25-conflict-resolution/FenceConflictScreen";
+import { DivergenceResolutionScreen } from "./screens/UX-25-conflict-resolution/DivergenceResolutionScreen";
+import type { DivergenceItem } from "./screens/UX-25-conflict-resolution/divergenceResolutionForm";
 import { MatchHistoryScreen } from "./screens/UX-26-match-history/MatchHistoryScreen";
 import type { MatchSummary } from "./screens/UX-26-match-history/matchHistoryForm";
 import { SettingsScreen } from "./screens/UX-27-settings/SettingsScreen";
@@ -332,6 +334,16 @@ function AppShell({ session }: { session: Session }) {
   const [realPushOutcomes, setRealPushOutcomes] = useState<PushEventOutcome[]>([]);
   const [syncActionNotice, setSyncActionNotice] = useState<string | null>(null);
 
+  // UX-25 Conflict Resolution, the dual-scorer-divergence half: real
+  // GET of this match's own `divergences` rows, real propose/confirm
+  // via the real (TASK-0125) Edge Functions. `currentStreamId` is
+  // real too -- this tab's own `scoringSession.scorerStreamId`, used
+  // only to resolve the real "Yours"/"Theirs" framing when it happens
+  // to match one of the row's own two stream ids (see
+  // `divergenceResolutionForm.ts`'s own doc comment).
+  const [realDivergences, setRealDivergences] = useState<DivergenceItem[]>([]);
+  const [divergenceActionError, setDivergenceActionError] = useState<string | null>(null);
+
   // Real player names are resolved only from what this session already
   // knows (the current live hub's own striker/non-striker/bowler, plus
   // the real XI picked in UX-07) -- there is no players-table lookup
@@ -425,6 +437,11 @@ function AppShell({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  useEffect(() => {
+    if (screen === "UX-25") reloadRealDivergences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
   // The minimum real scoring pathway: let the match's own creator
   // become its own Head Scorer. No "invite a scorer" flow exists
   // anywhere in this backlog -- this is deliberately narrow self-
@@ -483,6 +500,87 @@ function AppShell({ session }: { session: Session }) {
     setHasElevatedRole((moRows ?? []).some((r) => r.role === "HEAD_SCORER"));
   }
 
+  async function reloadRealDivergences() {
+    if (!realMatchId) {
+      setRealDivergences([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("divergences")
+      .select("id,over_ball,field,stream_a_id,stream_b_id,value_a,value_b,status,proposed_value,proposed_by")
+      .eq("match_id", realMatchId);
+    if (error) {
+      setDivergenceActionError(error.message);
+      return;
+    }
+    setRealDivergences(
+      (data ?? []).map((r) => ({
+        id: r.id,
+        overBall: r.over_ball,
+        field: r.field,
+        streamAId: r.stream_a_id,
+        streamBId: r.stream_b_id,
+        valueA: r.value_a,
+        valueB: r.value_b,
+        status: r.status,
+        proposedValue: r.proposed_value,
+        proposedBy: r.proposed_by,
+      })),
+    );
+  }
+
+  async function onProposeDivergenceReal(divergenceId: string, proposedValue: string) {
+    const { data, error } = await supabase.functions.invoke(`propose-divergence-resolution/divergences/${divergenceId}/propose`, {
+      method: "POST",
+      body: { proposedValue },
+    });
+    if (error) {
+      setDivergenceActionError(error.message);
+      return;
+    }
+    if (data?.type) {
+      setDivergenceActionError(data.detail ?? "Proposal rejected");
+      return;
+    }
+    await reloadRealDivergences();
+  }
+
+  // `SYNC-013`'s own text: a confirmed resolution "shall be recorded
+  // as an event." `divergenceResolution.ts`'s own `resolvedEventId`
+  // is an explicit caller-supplied input (no backend HTTP write-path
+  // into `match_events` exists anywhere in `backend/` to create that
+  // event itself) -- this app's own real event-push pipeline already
+  // can, via the same `pushScoringEvent` every other real event uses,
+  // with a new `DIVERGENCE_RESOLVED` type (the server never restricts
+  // `type` to a fixed enum, confirmed throughout this session) -- a
+  // real event genuinely gets created and referenced, not a
+  // fabricated id.
+  async function onConfirmDivergenceReal(divergenceId: string) {
+    const item = realDivergences.find((d) => d.id === divergenceId);
+    if (!item) return;
+    const pushResult = await pushScoringEvent(
+      { divergenceId, field: item.field, resolvedValue: item.proposedValue },
+      { type: "DIVERGENCE_RESOLVED" },
+    );
+    if (pushResult.outcome === "rejected") {
+      setDivergenceActionError(pushResult.detail);
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke(`confirm-divergence-resolution/divergences/${divergenceId}/confirm`, {
+      method: "POST",
+      body: { resolvedEventId: pushResult.eventId },
+    });
+    if (error) {
+      setDivergenceActionError(error.message);
+      return;
+    }
+    if (data?.type) {
+      setDivergenceActionError(data.detail ?? "Confirmation rejected");
+      return;
+    }
+    await reloadRealDivergences();
+  }
+
   // UX-23: a genuine network reachability probe against this app's
   // own real backend -- a trivial, cheap real SELECT (`feature_flags`
   // allows SELECT for any authenticated user with no org-scoping, per
@@ -509,7 +607,7 @@ function AppShell({ session }: { session: Session }) {
   async function pushScoringEvent(
     payload: Record<string, unknown>,
     options?: { type?: string; voids?: string },
-  ): Promise<{ outcome: "accepted" } | { outcome: "rejected"; detail: string }> {
+  ): Promise<{ outcome: "accepted"; eventId: string } | { outcome: "rejected"; detail: string }> {
     if (!scoringSession) return { outcome: "rejected", detail: "No real scoring session is active for this match." };
     const eventId = crypto.randomUUID();
     const hash = await computeEventHash(scoringSession.lastHash, eventId, payload);
@@ -553,7 +651,7 @@ function AppShell({ session }: { session: Session }) {
     setRealPushOutcomes((o) => [...o, { eventId, status: "ACCEPTED", rejectionReason: null }]);
     setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash, lastEventId: eventId } : s));
     setLastSyncedAt(nowIso);
-    return { outcome: "accepted" };
+    return { outcome: "accepted", eventId };
   }
 
   function pushDeliveryEvent(totalRuns: number) {
@@ -1610,7 +1708,28 @@ function AppShell({ session }: { session: Session }) {
           </>
         );
       case "UX-25":
-        return <FenceConflictScreen otherDeviceId="device-42" conflictDetectedAt="2026-09-28 10:00" onResolved={() => setScreen(returnTo ?? "UX-26")} />;
+        return (
+          <>
+            {divergenceActionError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                {divergenceActionError}
+              </p>
+            )}
+            <DivergenceResolutionScreen
+              items={realDivergences}
+              currentStreamId={scoringSession?.scorerStreamId ?? null}
+              currentActorId={session.user.id}
+              onPropose={onProposeDivergenceReal}
+              onConfirm={onConfirmDivergenceReal}
+              isOffline={false}
+            />
+            {/* The fence-conflict half genuinely cannot be made real --
+                the backend never grants a writer-fence lease anywhere
+                (confirmed this session), so STALE_FENCE can never fire.
+                Left as the existing flagged demo placeholder. */}
+            <FenceConflictScreen otherDeviceId="device-42" conflictDetectedAt="2026-09-28 10:00" onResolved={() => setScreen(returnTo ?? "UX-26")} />
+          </>
+        );
       case "UX-26":
         return (
           <>
