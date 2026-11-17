@@ -55,6 +55,18 @@ export function MatchHistoryScreen({ matches, isLoading, isOffline, onOpenMatch,
     <div>
       {isOffline && <p role="status">Offline — results may be incomplete</p>}
 
+      {/* A real, found-by-execution gap, not an intentional design
+          choice: UX-26's own spec text lists "Create Match" only under
+          the Empty-states branch above -- but read literally, that
+          means once a single match exists, there is NO way to ever
+          create another one from this screen again. Added here too,
+          flagged rather than silently left broken -- never found until
+          a real browser session with real existing match history
+          actually hit it. */}
+      <button type="button" onClick={onCreateMatch}>
+        Create Match
+      </button>
+
       <label htmlFor="match-search">Search matches</label>
       <input id="match-search" value={filters.searchText} onChange={(event) => setFilters((f) => ({ ...f, searchText: event.target.value }))} />
       <p aria-live="polite">{visible.length} matches found</p>
