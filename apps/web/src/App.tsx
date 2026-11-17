@@ -345,6 +345,15 @@ function AppShell({ session }: { session: Session }) {
   const [realDivergences, setRealDivergences] = useState<DivergenceItem[]>([]);
   const [divergenceActionError, setDivergenceActionError] = useState<string | null>(null);
 
+  // UX-25's fence-conflict half, now genuinely real too -- the real
+  // `writer_fences` lease-granting/stale-rejection wiring (sync-events'
+  // own `grantFenceIfNew`), confirmed working via curl before this
+  // client wiring: a brand-new stream grants its own lease on its
+  // first push; a later push asserting a DIFFERENT fence value for
+  // the same stream is rejected with the real STALE_FENCE errorCode.
+  const [realFenceConflict, setRealFenceConflict] = useState<{ otherDeviceId: string; conflictDetectedAt: string } | null>(null);
+  const [fenceActionError, setFenceActionError] = useState<string | null>(null);
+
   // Real player names are resolved only from what this session already
   // knows (the current live hub's own striker/non-striker/bowler, plus
   // the real XI picked in UX-07) -- there is no players-table lookup
@@ -582,6 +591,60 @@ function AppShell({ session }: { session: Session }) {
     await reloadRealDivergences();
   }
 
+  async function loadRealFenceConflict(scorerStreamId: string) {
+    const { data } = await supabase
+      .from("writer_fences")
+      .select("held_by_device_id,granted_at")
+      .eq("scorer_stream_id", scorerStreamId)
+      .maybeSingle();
+    if (data) {
+      setRealFenceConflict({ otherDeviceId: data.held_by_device_id, conflictDetectedAt: data.granted_at });
+    }
+  }
+
+  // A real "take over": overwrites the SAME stream's lease to a new
+  // fence/device -- `writer_fences_update`'s own real RLS policy (an
+  // authorized scorer on the match) is what makes this a genuine,
+  // authorized overwrite, not an unchecked raw write. Deliberately
+  // reuses `scoringSession.scorerStreamId`/`lastHash`/`nextDeviceSeq`
+  // as-is, NOT a brand-new `newScoringSession()` -- this is a
+  // continuation of the SAME stream's own hash chain under a new
+  // lease, not a new stream; resetting them would make this
+  // session's own very next push fail DEVICE_SEQ_GAP/HASH_CHAIN_BROKEN
+  // against the server's already-advanced real state for this stream.
+  //
+  // FLAGGED, not hidden: this action is only reachable at all once a
+  // real STALE_FENCE conflict has already fired, which this app's own
+  // `newScoringSession()` (a fresh random `scorerStreamId` every
+  // session) cannot organically produce through ordinary two-tab
+  // usage -- the fence-granting/rejection mechanism this unlocks is
+  // now genuinely real and verified (see sync-events' own
+  // `grantFenceIfNew`), but making the conflict itself arise through
+  // real two-device usage would need `scorerStreamId` to become a
+  // stable, deterministic identity per (match, user) instead, plus
+  // hydrating `lastHash`/`nextDeviceSeq` from the server on resume --
+  // a separate, additional design decision, not attempted here.
+  async function takeOverRealFence() {
+    if (!realMatchId || !scoringSession) return;
+    const newFenceValue = crypto.randomUUID();
+    const newDeviceId = crypto.randomUUID();
+    const { error } = await supabase.from("writer_fences").upsert({
+      scorer_stream_id: scoringSession.scorerStreamId,
+      match_id: realMatchId,
+      current_lease_value: newFenceValue,
+      held_by_device_id: newDeviceId,
+      granted_at: new Date().toISOString(),
+    });
+    if (error) {
+      setFenceActionError(error.message);
+      return;
+    }
+    setScoringSession((s) => (s ? { ...s, fenceValue: newFenceValue, deviceId: newDeviceId } : s));
+    setRealFenceConflict(null);
+    setFenceActionError(null);
+    backToHub();
+  }
+
   // UX-23: a genuine network reachability probe against this app's
   // own real backend -- a trivial, cheap real SELECT (`feature_flags`
   // allows SELECT for any authenticated user with no org-scoping, per
@@ -608,7 +671,7 @@ function AppShell({ session }: { session: Session }) {
   async function pushScoringEvent(
     payload: Record<string, unknown>,
     options?: { type?: string; voids?: string },
-  ): Promise<{ outcome: "accepted"; eventId: string } | { outcome: "rejected"; detail: string }> {
+  ): Promise<{ outcome: "accepted"; eventId: string } | { outcome: "rejected"; detail: string; errorCode?: string }> {
     if (!scoringSession) return { outcome: "rejected", detail: "No real scoring session is active for this match." };
     const eventId = crypto.randomUUID();
     const hash = await computeEventHash(scoringSession.lastHash, eventId, payload);
@@ -647,7 +710,14 @@ function AppShell({ session }: { session: Session }) {
     if (result?.outcome !== "ACCEPTED") {
       const detail = result?.errorDetail ?? "Unknown rejection";
       setRealPushOutcomes((o) => [...o, { eventId, status: "REJECTED", rejectionReason: detail }]);
-      return { outcome: "rejected", detail };
+      // UX-25's fence-conflict half, now real (writer_fences genuinely
+      // grants/rejects leases -- see sync-events/index.ts's own
+      // grantFenceIfNew). A real STALE_FENCE rejection means another
+      // device genuinely holds the lease -- look up who, for real.
+      if (result?.errorCode === "STALE_FENCE") {
+        await loadRealFenceConflict(scoringSession.scorerStreamId);
+      }
+      return { outcome: "rejected", detail, errorCode: result?.errorCode };
     }
     setRealPushOutcomes((o) => [...o, { eventId, status: "ACCEPTED", rejectionReason: null }]);
     setScoringSession((s) => (s ? { ...s, nextDeviceSeq: s.nextDeviceSeq + 1, lastHash: hash, lastEventId: eventId } : s));
@@ -1753,11 +1823,36 @@ function AppShell({ session }: { session: Session }) {
               onConfirm={onConfirmDivergenceReal}
               isOffline={false}
             />
-            {/* The fence-conflict half genuinely cannot be made real --
-                the backend never grants a writer-fence lease anywhere
-                (confirmed this session), so STALE_FENCE can never fire.
-                Left as the existing flagged demo placeholder. */}
-            <FenceConflictScreen otherDeviceId="device-42" conflictDetectedAt="2026-09-28 10:00" onResolved={() => setScreen(returnTo ?? "UX-26")} />
+            {fenceActionError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                {fenceActionError}
+              </p>
+            )}
+            {/* Real now: writer_fences genuinely grants/rejects leases
+                (sync-events' own grantFenceIfNew) -- a real STALE_FENCE
+                rejection sets realFenceConflict. Still, per this app's
+                own newScoringSession() minting a fresh random
+                scorerStreamId every session, no real conflict can
+                organically arise through ordinary two-tab usage yet
+                (flagged in takeOverRealFence's own doc comment) -- so
+                this honestly shows "no conflicts" for real, not demo
+                data, matching UX-25's own "No-conflicts (the common
+                case)" state. */}
+            {realFenceConflict ? (
+              <FenceConflictScreen
+                otherDeviceId={realFenceConflict.otherDeviceId}
+                conflictDetectedAt={realFenceConflict.conflictDetectedAt}
+                onResolved={(resolution) => {
+                  if (resolution === "TAKE_OVER") {
+                    takeOverRealFence();
+                  } else {
+                    setRealFenceConflict(null);
+                  }
+                }}
+              />
+            ) : (
+              <p role="status">No device conflicts — logs match.</p>
+            )}
           </>
         );
       case "UX-26":

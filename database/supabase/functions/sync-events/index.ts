@@ -49,6 +49,7 @@ import { pushEvents, type PushEventsRequest } from "../_shared/backend/pushEvent
 import { hydrateSyncEventsDeps, persistAcceptedEvents } from "../_shared/backend/syncEventsPersistence.js";
 import { detectAndPersistRealDivergences } from "../_shared/backend/divergenceDetectorPersistence.js";
 import { hydrateBattingContextDeps } from "../_shared/backend/battingContextPersistence.js";
+import { grantFenceIfNew } from "../_shared/backend/writerFencePersistence.js";
 
 // @ts-expect-error -- Deno's global, not a Node/tsc ambient type in this project.
 Deno.serve(async (req: Request) => {
@@ -107,7 +108,8 @@ Deno.serve(async (req: Request) => {
   }
 
   if (request.matchId) {
-    await persistAcceptedEvents(client, request.matchId, deps.eventStore, new Date().toISOString());
+    const nowIso = new Date().toISOString();
+    await persistAcceptedEvents(client, request.matchId, deps.eventStore, nowIso);
     // Best-effort secondary pass -- TASK-0161: the first real wiring of
     // the previously dead-code `detectAndRecordDivergences` (TASK-0038)
     // into an actual running pipeline. A failure here must never fail
@@ -116,6 +118,19 @@ Deno.serve(async (req: Request) => {
       await detectAndPersistRealDivergences(client, request.matchId, request.scorerStreamId);
     } catch (divergenceError) {
       console.error("sync-events: divergence detection pass failed (non-fatal)", divergenceError);
+    }
+    // Real wiring for UX-25's fence-conflict half: `writer_fences` was
+    // never written to anywhere in this backend, so STALE_FENCE could
+    // never fire. A brand-new stream grants itself the lease on its
+    // own first successful push -- an existing stream's own row
+    // already matches the asserted fence by this point (the fence
+    // check above already rejected any push that didn't). Also
+    // best-effort/non-fatal for the same reason as divergence
+    // detection: the push itself already genuinely succeeded.
+    try {
+      await grantFenceIfNew(client, request.matchId, request.scorerStreamId, request.deviceId, request.fenceValue, nowIso);
+    } catch (fenceError) {
+      console.error("sync-events: writer-fence grant pass failed (non-fatal)", fenceError);
     }
   }
 
