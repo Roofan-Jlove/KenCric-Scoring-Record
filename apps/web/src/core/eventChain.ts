@@ -44,10 +44,34 @@ export interface ScoringSession {
   lastEventId: string | null;
 }
 
-export function newScoringSession(matchId: string): ScoringSession {
+// A real, deliberate correction: `scorerStreamId` used to be a fresh
+// `crypto.randomUUID()` every session, which meant two real browser
+// tabs on the SAME match could never collide on the same stream --
+// the exact reason UX-25's own fence-conflict detection, even once
+// the real server-side lease-granting mechanism existed
+// (`writerFencePersistence.js`), could never actually fire through
+// ordinary two-tab usage. Deriving it deterministically from
+// `(matchId, userId)` means the SAME user reopening the SAME match in
+// a second tab/device genuinely reuses the SAME stream identity --
+// the real, reachable "one scorer, two devices" conflict scenario
+// this app's own architecture (no multi-user invite flow for a
+// personal match) actually supports. `deviceId`/`fenceValue` stay
+// randomly generated PER SESSION -- each tab asserting its OWN fence
+// value for the shared stream is exactly what makes a genuine
+// STALE_FENCE mismatch arise between them.
+export async function deriveScorerStreamId(matchId: string, userId: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`${matchId}:${userId}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(new Uint8Array(digest).slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export async function newScoringSession(matchId: string, userId: string): Promise<ScoringSession> {
   return {
     matchId,
-    scorerStreamId: crypto.randomUUID(),
+    scorerStreamId: await deriveScorerStreamId(matchId, userId),
     deviceId: crypto.randomUUID(),
     // Any value is accepted as the fence for a brand-new match (no
     // fence has ever been acquired for it yet) -- confirmed directly

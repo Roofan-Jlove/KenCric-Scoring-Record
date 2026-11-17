@@ -3,7 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 
 import { AuthGate } from "./core/AuthGate";
 import { supabase } from "./core/supabaseClient";
-import { computeEventHash, newScoringSession, type ScoringSession } from "./core/eventChain";
+import { computeEventHash, deriveScorerStreamId, GENESIS_HASH, type ScoringSession } from "./core/eventChain";
 import { fetchRealMatchEvents, foldBallByBall, foldScorecard, type FoldedInnings } from "./core/matchEventsFold";
 import { CreateMatchScreen } from "./screens/UX-04-create-match/CreateMatchScreen";
 import type { DraftMatch } from "./screens/UX-04-create-match/createMatchForm";
@@ -478,10 +478,57 @@ function AppShell({ session }: { session: Session }) {
       if (createError) throw createError;
       officialId = created.id;
     }
+    // A real, pre-existing bug found while making this callable again
+    // on an already-assigned match (resuming a real session in a
+    // second tab needs to re-confirm the assignment, not just the
+    // first time) -- match_officials' own composite PK is
+    // (match_id, official_id, role); a plain repeat INSERT would hit
+    // a real PK violation. Idempotent: check first, same shape the
+    // officials lookup just above already uses.
+    const { data: existingAssignment } = await supabase
+      .from("match_officials")
+      .select("match_id")
+      .eq("match_id", matchId)
+      .eq("official_id", officialId)
+      .eq("role", "HEAD_SCORER")
+      .maybeSingle();
+    if (existingAssignment) return;
     const { error: assignError } = await supabase
       .from("match_officials")
       .insert({ match_id: matchId, official_id: officialId, role: "HEAD_SCORER", created_by: session.user.id });
     if (assignError) throw assignError;
+  }
+
+  // Replaces the old always-fresh `newScoringSession()` call -- real
+  // resume, not just a real deterministic stream id. Since
+  // `scorerStreamId` is now derived from `(matchId, session.user.id)`
+  // (`eventChain.ts`'s own `deriveScorerStreamId`), the SAME user
+  // reopening the SAME real match in a second tab genuinely reuses the
+  // same stream -- but that second tab must hydrate `nextDeviceSeq`/
+  // `lastHash`/`lastEventId` from the real server state for that
+  // stream (the same real head query `hydrateSyncEventsDeps` itself
+  // already makes server-side), or its own very first push would fail
+  // DEVICE_SEQ_GAP/HASH_CHAIN_BROKEN instead of the intended
+  // STALE_FENCE -- a brand-new stream (no real rows yet) correctly
+  // starts at GENESIS/0, unchanged from before.
+  async function createOrResumeScoringSession(matchId: string): Promise<ScoringSession> {
+    const scorerStreamId = await deriveScorerStreamId(matchId, session.user.id);
+    const { data: headRows } = await supabase
+      .from("match_events")
+      .select("event_id,device_seq,hash")
+      .eq("scorer_stream_id", scorerStreamId)
+      .order("device_seq", { ascending: false })
+      .limit(1);
+    const head = headRows?.[0];
+    return {
+      matchId,
+      scorerStreamId,
+      deviceId: crypto.randomUUID(),
+      fenceValue: crypto.randomUUID(),
+      nextDeviceSeq: head ? head.device_seq + 1 : 0,
+      lastHash: head ? head.hash : GENESIS_HASH,
+      lastEventId: head ? head.event_id : null,
+    };
   }
 
   // UX-17: reloads the two genuinely real pieces of Score Correction's
@@ -1347,7 +1394,7 @@ function AppShell({ session }: { session: Session }) {
                       totalBallsAllotted: (matchSetup?.oversAllotted ?? 20) * 6,
                     });
                     setRealMatchId(id);
-                    setScoringSession(newScoringSession(id));
+                    setScoringSession(await createOrResumeScoringSession(id));
                     setScreen("UX-10");
                   })
                   .catch((err) => setMatchSaveError(err instanceof Error ? err.message : String(err)))
@@ -1867,9 +1914,24 @@ function AppShell({ session }: { session: Session }) {
               matches={realMatches}
               isLoading={matchHistoryLoading}
               isOffline={false}
-              onOpenMatch={() => {
+              onOpenMatch={(matchId) => {
+                // A real, pre-existing gap found while making the
+                // real two-tab fence-conflict scenario testable:
+                // this previously ignored the real matchId entirely,
+                // never setting realMatchId/scoringSession at all --
+                // re-opening an existing real match from history had
+                // no real scoring session behind it. Now genuinely
+                // resumes (or grants, if this user/match pair has
+                // never scored before) a real session for the match
+                // actually clicked, via the same ensureScorerAssignment
+                // already used for a freshly-created match.
                 setReturnTo(null);
                 setLive(defaultLiveState);
+                setRealMatchId(matchId);
+                ensureScorerAssignment(matchId)
+                  .then(() => createOrResumeScoringSession(matchId))
+                  .then((resumed) => setScoringSession(resumed))
+                  .catch((err) => setMatchSaveError(err instanceof Error ? err.message : String(err)));
                 setScreen("UX-10");
               }}
               onCreateMatch={() => {
