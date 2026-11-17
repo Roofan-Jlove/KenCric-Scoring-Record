@@ -252,6 +252,7 @@ function AppShell({ session }: { session: Session }) {
   const [teamsError, setTeamsError] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [matchSaveError, setMatchSaveError] = useState<string | null>(null);
+  const [playersSaveError, setPlayersSaveError] = useState<string | null>(null);
   const [matchSaving, setMatchSaving] = useState(false);
   const [realMatchId, setRealMatchId] = useState<string | null>(null);
   const [scoringSession, setScoringSession] = useState<ScoringSession | null>(null);
@@ -1090,6 +1091,25 @@ function AppShell({ session }: { session: Session }) {
     setRealTeams((prev) => [{ id: data.id, name: data.name, isAdHoc: false }, ...prev]);
   }
 
+  // UX-06/UX-07: real, previously demo-only Playing XI data. Every
+  // player a real user genuinely adds (`TeamSelectionScreen`'s own
+  // "add player" action, real uuid ids since the real mismatch found
+  // alongside this) is persisted for real here, at this screen's own
+  // natural commit point -- `createRealMatch`'s `home_xi`/`away_xi`
+  // then reference these same real ids, not demo placeholders. Only
+  // fires for a squad the user genuinely populated -- an empty squad
+  // (never touched "add player") has nothing real to persist, and
+  // UX-07's own existing `squadOf()` demo fallback still applies
+  // exactly as before.
+  async function persistRealPlayers(state: TeamSelectionState) {
+    const allPlayers = [...state.squadA, ...state.squadB];
+    if (allPlayers.length === 0) return;
+    const { error } = await supabase.from("players").insert(
+      allPlayers.map((p) => ({ id: p.id, name: p.name, created_by: session.user.id })),
+    );
+    if (error) throw error;
+  }
+
   function openSub(next: Screen) {
     setReturnTo(screen);
     setScreen(next);
@@ -1175,12 +1195,22 @@ function AppShell({ session }: { session: Session }) {
                 <button type="submit" disabled={teamsLoading}>Create real team</button>
               </form>
             </div>
+            {playersSaveError && (
+              <p role="alert" style={{ color: "#b91c1c" }}>
+                Failed to save real players: {playersSaveError}
+              </p>
+            )}
             <TeamSelectionScreen
               availableTeams={realTeams.length > 0 ? realTeams : [demoTeamA, demoTeamB]}
               requiredXiSize={11}
               onContinue={(state) => {
-                setTeamSelection(state);
-                setScreen("UX-07");
+                persistRealPlayers(state)
+                  .then(() => {
+                    setPlayersSaveError(null);
+                    setTeamSelection(state);
+                    setScreen("UX-07");
+                  })
+                  .catch((err) => setPlayersSaveError(err instanceof Error ? err.message : String(err)));
               }}
             />
           </>

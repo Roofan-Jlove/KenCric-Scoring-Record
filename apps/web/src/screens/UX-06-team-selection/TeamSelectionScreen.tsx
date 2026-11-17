@@ -32,8 +32,6 @@ export interface TeamSelectionScreenProps {
   onContinue: (state: TeamSelectionState) => void;
 }
 
-let adHocCounter = 0;
-
 export function TeamSelectionScreen({ availableTeams, requiredXiSize, onContinue }: TeamSelectionScreenProps) {
   const [state, setState] = useState<TeamSelectionState>(initialTeamSelectionState);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
@@ -52,8 +50,14 @@ export function TeamSelectionScreen({ availableTeams, requiredXiSize, onContinue
   function handleAddPlayer(side: "A" | "B") {
     const name = newPlayerName[side].trim();
     if (!name) return;
-    adHocCounter += 1;
-    const player: Player = { id: `adhoc-${adHocCounter}`, name, isAdHoc: true };
+    // A real, pre-existing mismatch found while wiring real `players`
+    // persistence: this previously used a plain `adhoc-${counter}`
+    // string, not a real uuid -- `players.id` is `uuid primary key`,
+    // so persisting this player for real (App.tsx's own onContinue)
+    // needs a genuine uuid from the moment it's created, not a second,
+    // separately-generated one that would desync from the id XI
+    // selection/`home_xi`/`away_xi` already carry forward.
+    const player: Player = { id: crypto.randomUUID(), name, isAdHoc: true };
     setState((s) => addPlayer(s, side, player));
     setNewPlayerName((n) => ({ ...n, [side]: "" }));
   }
